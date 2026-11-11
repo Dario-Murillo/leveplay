@@ -1,29 +1,36 @@
 using System.Diagnostics;
 using Leveplay.Core.Auth;
 using Leveplay.Core.Config;
+using Leveplay.Core.Devices;
 using SpotifyAPI.Web;
 
 namespace Leveplay.Tray;
 
 /// <summary>
 /// Tray-only application: no main window, just a notification icon and its menu.
-/// Milestone 1 covers sign-in only; device and playback controls come next.
+/// Signs in, then makes the configured Spotify Connect device the active one.
+/// Playback controls come next.
 /// </summary>
 internal sealed class TrayApp : ApplicationContext
 {
     private const int MaxTooltipLength = 127;
 
     private readonly NotifyIcon _icon;
+    private readonly ToolStripMenuItem _connectItem;
     private readonly ToolStripMenuItem _signInItem;
     private readonly CancellationTokenSource _shutdown = new();
+    private AppSettings? _settings;
     private SpotifyAuthService? _auth;
-    private SpotifyClient? _spotify;
+    private DeviceConnector? _connector;
+    private bool _busy;
 
     public TrayApp()
     {
+        _connectItem = new ToolStripMenuItem("Connect to device", null, async (_, _) => await ConnectAsync());
         _signInItem = new ToolStripMenuItem("Sign in again", null, async (_, _) => await ReauthenticateAsync());
 
         var menu = new ContextMenuStrip();
+        menu.Items.Add(_connectItem);
         menu.Items.Add(_signInItem);
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add("Exit", null, (_, _) => ExitThread());
@@ -35,6 +42,7 @@ internal sealed class TrayApp : ApplicationContext
             Visible = true,
         };
         SetStatus("starting…");
+        UpdateMenu();
 
         _ = StartAsync();
     }
@@ -43,8 +51,8 @@ internal sealed class TrayApp : ApplicationContext
     {
         try
         {
-            var settings = AppSettingsLoader.Load(AppContext.BaseDirectory);
-            _auth = new SpotifyAuthService(settings, new DpapiTokenStore(), OpenBrowser);
+            _settings = AppSettingsLoader.Load(AppContext.BaseDirectory);
+            _auth = new SpotifyAuthService(_settings, new DpapiTokenStore(), OpenBrowser);
         }
         catch (SettingsException ex)
         {
@@ -52,46 +60,114 @@ internal sealed class TrayApp : ApplicationContext
             return;
         }
 
-        await SignInAsync();
+        _connectItem.Text = $"Connect to \"{_settings.DeviceName}\"";
+        if (await SignInAsync())
+        {
+            await ConnectAsync();
+        }
     }
 
     private async Task ReauthenticateAsync()
     {
-        if (_auth is null)
+        if (_auth is null || _busy)
         {
             return;
         }
 
         _auth.SignOut();
-        await SignInAsync();
+        _connector = null;
+        if (await SignInAsync())
+        {
+            await ConnectAsync();
+        }
     }
 
-    private async Task SignInAsync()
+    private Task<bool> SignInAsync() => RunAsync("signing in…", async ct =>
     {
-        _signInItem.Enabled = false;
-        SetStatus("signing in…");
+        var spotify = await _auth!.SignInAsync(ct);
+        _connector = new DeviceConnector(new SpotifyPlayerGateway(spotify));
+        SetStatus("signed in");
+    });
+
+    private Task<bool> ConnectAsync() => RunAsync("looking for device…", async ct =>
+    {
+        if (_connector is null || _settings is null)
+        {
+            return;
+        }
+
+        var name = _settings.DeviceName;
+        var result = await _connector.ConnectAsync(name, ct);
+        switch (result.Status)
+        {
+            case ConnectStatus.Transferred:
+            case ConnectStatus.AlreadyActive:
+                SetStatus($"connected to {result.Device!.Name}");
+                break;
+
+            case ConnectStatus.Restricted:
+                ReportError("Device cannot be controlled",
+                    $"\"{name}\" is online but does not accept remote commands.");
+                break;
+
+            case ConnectStatus.NotFound:
+                var available = result.AvailableDeviceNames.Count == 0
+                    ? "No Spotify devices are online. Start spotifyd or open Spotify on a device."
+                    : $"Online devices: {string.Join(", ", result.AvailableDeviceNames)}.";
+                ReportError("Device not found", $"\"{name}\" is not online. {available}");
+                break;
+        }
+    });
+
+    /// <summary>
+    /// Runs one Spotify operation at a time, turning expected failures into a balloon
+    /// instead of an unhandled exception. Returns false when the operation failed.
+    /// </summary>
+    private async Task<bool> RunAsync(string status, Func<CancellationToken, Task> operation)
+    {
+        if (_busy)
+        {
+            return false;
+        }
+
+        _busy = true;
+        UpdateMenu();
+        SetStatus(status);
         try
         {
-            _spotify = await _auth!.SignInAsync(_shutdown.Token);
-            var profile = await _spotify.UserProfile.Current(_shutdown.Token);
-            SetStatus($"signed in as {profile.DisplayName ?? profile.Id}");
+            await operation(_shutdown.Token);
+            return true;
         }
         catch (OperationCanceledException) when (_shutdown.IsCancellationRequested)
         {
-            // App is exiting.
+            return false; // App is exiting.
         }
         catch (AuthException ex)
         {
             ReportError("Sign-in failed", ex.Message);
+            return false;
         }
-        catch (Exception ex) when (ex is HttpRequestException or APIException)
+        catch (APIException ex)
+        {
+            ReportError("Spotify rejected the request", ex.Message);
+            return false;
+        }
+        catch (HttpRequestException ex)
         {
             ReportError("Could not reach Spotify", ex.Message);
+            return false;
         }
         finally
         {
-            _signInItem.Enabled = _auth is not null;
+            _busy = false;
+            UpdateMenu();
         }
+    }
+
+    private void UpdateMenu()
+    {
+        _signInItem.Enabled = _auth is not null && !_busy;
+        _connectItem.Enabled = _connector is not null && !_busy;
     }
 
     private void SetStatus(string status)
