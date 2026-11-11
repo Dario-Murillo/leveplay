@@ -8,15 +8,27 @@ namespace Leveplay.Tray;
 
 /// <summary>
 /// Tray-only application: no main window, just a notification icon and its menu.
-/// Signs in, then makes the configured Spotify Connect device the active one.
-/// Playback controls come next.
+/// Signs in, makes the configured Spotify Connect device the active one, and then
+/// controls playback on whichever device is active.
 /// </summary>
 internal sealed class TrayApp : ApplicationContext
 {
     private const int MaxTooltipLength = 127;
 
+    /// <summary>Polling interval while no device is active, to save API calls.</summary>
+    private const int IdlePollMilliseconds = 30_000;
+
+    /// <summary>Spotify needs a moment before a command shows up in the player state.</summary>
+    private const int CommandSettleMilliseconds = 500;
+
+    /// <summary>How long an error stays on screen before polling may replace it.</summary>
+    private static readonly TimeSpan ErrorHold = TimeSpan.FromSeconds(15);
+
     private readonly NotifyIcon _icon;
     private readonly ToolStripMenuItem _statusItem;
+    private readonly ToolStripMenuItem _playPauseItem;
+    private readonly ToolStripMenuItem _nextItem;
+    private readonly ToolStripMenuItem _previousItem;
     private readonly ToolStripMenuItem _connectItem;
     private readonly ToolStripMenuItem _devicesItem;
     private readonly ToolStripMenuItem _signInItem;
@@ -25,11 +37,18 @@ internal sealed class TrayApp : ApplicationContext
     private SpotifyAuthService? _auth;
     private IPlayerGateway? _player;
     private DeviceConnector? _connector;
+    private PlaybackController? _playback;
+    private readonly System.Windows.Forms.Timer _pollTimer = new() { Interval = IdlePollMilliseconds };
+    private DateTime _errorShownUntil = DateTime.MinValue;
     private bool _busy;
+    private bool _polling;
 
     public TrayApp()
     {
         _statusItem = DisabledItem("Starting…");
+        _playPauseItem = new ToolStripMenuItem("Play", null, async (_, _) => await PlayPauseAsync());
+        _nextItem = new ToolStripMenuItem("Next", null, async (_, _) => await SkipAsync(next: true));
+        _previousItem = new ToolStripMenuItem("Previous", null, async (_, _) => await SkipAsync(next: false));
         _connectItem = new ToolStripMenuItem("Connect to device", null, async (_, _) => await ConnectAsync());
         _devicesItem = new ToolStripMenuItem("Devices");
         _devicesItem.DropDownItems.Add(DisabledItem("Loading…"));
@@ -37,6 +56,10 @@ internal sealed class TrayApp : ApplicationContext
 
         var menu = new ContextMenuStrip { ShowItemToolTips = true };
         menu.Items.Add(_statusItem);
+        menu.Items.Add(new ToolStripSeparator());
+        menu.Items.Add(_playPauseItem);
+        menu.Items.Add(_nextItem);
+        menu.Items.Add(_previousItem);
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add(_connectItem);
         menu.Items.Add(_devicesItem);
@@ -52,6 +75,16 @@ internal sealed class TrayApp : ApplicationContext
             ContextMenuStrip = menu,
             Visible = true,
         };
+        // Left click toggles play/pause; right click opens the menu.
+        _icon.MouseClick += async (_, e) =>
+        {
+            if (e.Button == MouseButtons.Left)
+            {
+                await PlayPauseAsync();
+            }
+        };
+        _pollTimer.Tick += async (_, _) => await PollAsync();
+
         SetStatus("starting…");
         UpdateMenu();
 
@@ -87,8 +120,10 @@ internal sealed class TrayApp : ApplicationContext
         }
 
         _auth.SignOut();
+        _pollTimer.Stop();
         _player = null;
         _connector = null;
+        _playback = null;
         if (await SignInAsync())
         {
             await ConnectAsync();
@@ -100,7 +135,9 @@ internal sealed class TrayApp : ApplicationContext
         var spotify = await _auth!.SignInAsync(ct);
         _player = new SpotifyPlayerGateway(spotify);
         _connector = new DeviceConnector(_player, AppLog.Write);
+        _playback = new PlaybackController(_player, AppLog.Write);
         SetStatus("signed in");
+        _pollTimer.Start();
     });
 
     /// <summary>Connects to the given device, or to the configured one when none is given.</summary>
@@ -119,6 +156,7 @@ internal sealed class TrayApp : ApplicationContext
             case ConnectStatus.Transferred:
             case ConnectStatus.AlreadyActive:
                 SetStatus($"connected to {result.Device!.Name}");
+                await RefreshAfterCommandAsync(ct);
                 break;
 
             case ConnectStatus.Restricted:
@@ -134,6 +172,83 @@ internal sealed class TrayApp : ApplicationContext
                 break;
         }
     });
+
+    private Task<bool> PlayPauseAsync() => RunAsync(null, async ct =>
+    {
+        if (_playback is null || _settings is null)
+        {
+            return;
+        }
+
+        var outcome = await _playback.TogglePlayPauseAsync(_settings.DeviceName, _settings.DefaultContextUri, ct);
+        if (outcome == PlayPauseOutcome.NoDevice)
+        {
+            ReportError("Nothing to play on",
+                $"No device is active and \"{_settings.DeviceName}\" is not online. Pick one under Devices.");
+            return;
+        }
+
+        await RefreshAfterCommandAsync(ct);
+    });
+
+    private Task<bool> SkipAsync(bool next) => RunAsync(null, async ct =>
+    {
+        if (_playback is null)
+        {
+            return;
+        }
+
+        await (next ? _playback.NextAsync(ct) : _playback.PreviousAsync(ct));
+        await RefreshAfterCommandAsync(ct);
+    });
+
+    private async Task RefreshAfterCommandAsync(CancellationToken ct)
+    {
+        await Task.Delay(CommandSettleMilliseconds, ct);
+        ShowPlayback(await _player!.GetPlaybackAsync(ct));
+    }
+
+    /// <summary>Timer tick: refreshes the now-playing text. Failures are logged, not shown.</summary>
+    private async Task PollAsync()
+    {
+        if (_player is null || _busy || _polling)
+        {
+            return;
+        }
+
+        _polling = true;
+        try
+        {
+            ShowPlayback(await _player.GetPlaybackAsync(_shutdown.Token));
+        }
+        catch (OperationCanceledException)
+        {
+            // App is exiting.
+        }
+        catch (Exception ex) when (ex is APIException or HttpRequestException)
+        {
+            AppLog.Write($"poll failed: {ex.Message}");
+            _pollTimer.Interval = IdlePollMilliseconds;
+        }
+        finally
+        {
+            _polling = false;
+        }
+    }
+
+    private void ShowPlayback(PlaybackState? state)
+    {
+        // Poll slowly while nothing is active; there is nothing to keep up with.
+        _pollTimer.Interval = state is null
+            ? IdlePollMilliseconds
+            : (_settings?.PollIntervalSeconds ?? 5) * 1000;
+        _playPauseItem.Text = state is { IsPlaying: true } ? "Pause" : "Play";
+
+        if (DateTime.UtcNow >= _errorShownUntil)
+        {
+            SetStatus(PlaybackController.Describe(state));
+        }
+    }
 
     /// <summary>
     /// Rebuilds the Devices submenu each time the menu opens, so it always shows what is
@@ -186,7 +301,7 @@ internal sealed class TrayApp : ApplicationContext
     /// Runs one Spotify operation at a time, turning expected failures into a balloon
     /// instead of an unhandled exception. Returns false when the operation failed.
     /// </summary>
-    private async Task<bool> RunAsync(string status, Func<CancellationToken, Task> operation)
+    private async Task<bool> RunAsync(string? status, Func<CancellationToken, Task> operation)
     {
         if (_busy)
         {
@@ -194,8 +309,13 @@ internal sealed class TrayApp : ApplicationContext
         }
 
         _busy = true;
+        _errorShownUntil = DateTime.MinValue;
         UpdateMenu();
-        SetStatus(status);
+        if (status is not null)
+        {
+            SetStatus(status);
+        }
+
         try
         {
             await operation(_shutdown.Token);
@@ -237,6 +357,7 @@ internal sealed class TrayApp : ApplicationContext
     {
         _signInItem.Enabled = _auth is not null && !_busy;
         _connectItem.Enabled = _connector is not null && !_busy;
+        _playPauseItem.Enabled = _nextItem.Enabled = _previousItem.Enabled = _playback is not null && !_busy;
     }
 
     private void SetStatus(string status)
@@ -252,6 +373,7 @@ internal sealed class TrayApp : ApplicationContext
     private void ReportError(string title, string message)
     {
         AppLog.Write($"error: {title}: {message}");
+        _errorShownUntil = DateTime.UtcNow + ErrorHold;
         SetStatus(title.ToLowerInvariant());
         _statusItem.Text = $"{title}: {message}";
         _icon.ShowBalloonTip(10_000, $"Leveplay: {title}", message, ToolTipIcon.Error);
@@ -276,6 +398,7 @@ internal sealed class TrayApp : ApplicationContext
     protected override void ExitThreadCore()
     {
         _shutdown.Cancel();
+        _pollTimer.Dispose();
         _icon.Visible = false;
         _icon.Dispose();
         base.ExitThreadCore();
