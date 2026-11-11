@@ -4,30 +4,6 @@ namespace Leveplay.Core.Tests;
 
 public sealed class DeviceConnectorTests
 {
-    private sealed class FakePlayer(params ConnectDevice[] devices) : IPlayerGateway
-    {
-        public List<string> Transfers { get; } = [];
-        public List<bool> PlayFlags { get; } = [];
-        public bool IsPlaying { get; init; }
-        public int IsPlayingCalls { get; private set; }
-
-        public Task<IReadOnlyList<ConnectDevice>> GetDevicesAsync(CancellationToken ct = default) =>
-            Task.FromResult<IReadOnlyList<ConnectDevice>>(devices);
-
-        public Task<bool> IsPlayingAsync(CancellationToken ct = default)
-        {
-            IsPlayingCalls++;
-            return Task.FromResult(IsPlaying);
-        }
-
-        public Task TransferPlaybackAsync(string deviceId, bool play, CancellationToken ct = default)
-        {
-            Transfers.Add(deviceId);
-            PlayFlags.Add(play);
-            return Task.CompletedTask;
-        }
-    }
-
     private static ConnectDevice Device(
         string name, string? id = "id-1", bool active = false, bool restricted = false) =>
         new(id, name, "Computer", active, restricted);
@@ -51,7 +27,7 @@ public sealed class DeviceConnectorTests
     {
         var player = new FakePlayer(Device("Phone", "phone-id", active: true), Device("Leveplay", "pc-id"))
         {
-            IsPlaying = wasPlaying,
+            Playback = new PlaybackState(wasPlaying, "Song", "Artist", "Phone"),
         };
 
         await new DeviceConnector(player).ConnectAsync("Leveplay");
@@ -62,12 +38,15 @@ public sealed class DeviceConnectorTests
     [Fact]
     public async Task Transfer_does_not_start_playback_when_no_device_was_active()
     {
-        var player = new FakePlayer(Device("Leveplay", "pc-id")) { IsPlaying = true };
+        var player = new FakePlayer(Device("Leveplay", "pc-id"))
+        {
+            Playback = new PlaybackState(true, "Song", "Artist", "Elsewhere"),
+        };
 
         await new DeviceConnector(player).ConnectAsync("Leveplay");
 
         Assert.Equal([false], player.PlayFlags);
-        Assert.Equal(0, player.IsPlayingCalls);
+        Assert.Equal(0, player.PlaybackCalls);
     }
 
     [Fact]
