@@ -26,7 +26,7 @@ depend on it.
 | Milestone                                                      | State       |
 | -------------------------------------------------------------- | ----------- |
 | 1. Sign-in (Authorization Code + PKCE, silent on later starts) | Implemented |
-| 2. Find the configured device and transfer playback to it      | Planned     |
+| 2. Find the configured device and transfer playback to it      | Implemented |
 | 3. Tray menu (Play/Pause, Next, Previous) and now-playing tooltip | Planned  |
 | 4. Global hotkeys, auto-start, Native AOT packaging            | Planned     |
 
