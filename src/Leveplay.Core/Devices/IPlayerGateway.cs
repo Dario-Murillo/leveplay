@@ -5,6 +5,11 @@ namespace Leveplay.Core.Devices;
 /// <param name="IsRestricted">True when the device does not accept Web API commands.</param>
 public sealed record ConnectDevice(string? Id, string Name, string Type, bool IsActive, bool IsRestricted);
 
+/// <summary>What the active device is doing right now.</summary>
+/// <param name="Title">Track or episode name; null when nothing is loaded.</param>
+/// <param name="Artist">Artists of a track, or the show of an episode.</param>
+public sealed record PlaybackState(bool IsPlaying, string? Title, string? Artist, string? DeviceName);
+
 /// <summary>
 /// The slice of the Spotify player API that Leveplay uses. Kept small so the logic on
 /// top of it can be tested without network access.
@@ -13,10 +18,22 @@ public interface IPlayerGateway
 {
     Task<IReadOnlyList<ConnectDevice>> GetDevicesAsync(CancellationToken ct = default);
 
-    /// <summary>True when something is playing right now on any device.</summary>
-    Task<bool> IsPlayingAsync(CancellationToken ct = default);
+    /// <summary>Returns null when no device is active.</summary>
+    Task<PlaybackState?> GetPlaybackAsync(CancellationToken ct = default);
 
     /// <summary>Makes the device the active one.</summary>
     /// <param name="play">True to keep playing on the new device, false to leave it paused.</param>
     Task TransferPlaybackAsync(string deviceId, bool play, CancellationToken ct = default);
+
+    Task PauseAsync(CancellationToken ct = default);
+
+    /// <summary>Resumes whatever is loaded on the active device.</summary>
+    Task ResumeAsync(CancellationToken ct = default);
+
+    /// <summary>Starts a playlist, album or artist on the given device.</summary>
+    Task PlayContextAsync(string contextUri, string deviceId, CancellationToken ct = default);
+
+    Task NextAsync(CancellationToken ct = default);
+
+    Task PreviousAsync(CancellationToken ct = default);
 }
