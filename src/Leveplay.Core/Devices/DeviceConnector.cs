@@ -26,12 +26,14 @@ public sealed record ConnectResult(
 }
 
 /// <summary>Finds the configured Spotify Connect device and makes it the active one.</summary>
-public sealed class DeviceConnector(IPlayerGateway player)
+/// <param name="log">Optional sink for diagnostic messages.</param>
+public sealed class DeviceConnector(IPlayerGateway player, Action<string>? log = null)
 {
     public async Task<ConnectResult> ConnectAsync(string deviceName, CancellationToken ct = default)
     {
         var devices = await player.GetDevicesAsync(ct).ConfigureAwait(false);
         var names = devices.Select(d => d.Name).ToList();
+        log?.Invoke($"connect \"{deviceName}\": online = [{string.Join(", ", devices.Select(Describe))}]");
 
         var device = FindByName(devices, deviceName);
         if (device is null)
@@ -53,9 +55,13 @@ public sealed class DeviceConnector(IPlayerGateway player)
         // over: music that was playing keeps playing, and a paused session stays paused.
         var wasPlaying = devices.Any(d => d.IsActive)
                          && await player.IsPlayingAsync(ct).ConfigureAwait(false);
+        log?.Invoke($"transfer to \"{device.Name}\" with play={wasPlaying}");
         await player.TransferPlaybackAsync(device.Id, wasPlaying, ct).ConfigureAwait(false);
         return new ConnectResult(ConnectStatus.Transferred, device, names);
     }
+
+    private static string Describe(ConnectDevice d) =>
+        $"\"{d.Name}\" ({d.Type}{(d.IsActive ? ", active" : "")}{(d.IsRestricted ? ", restricted" : "")})";
 
     /// <summary>
     /// Matches by name, ignoring case and surrounding whitespace. Device names are not

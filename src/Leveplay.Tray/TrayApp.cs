@@ -16,6 +16,7 @@ internal sealed class TrayApp : ApplicationContext
     private const int MaxTooltipLength = 127;
 
     private readonly NotifyIcon _icon;
+    private readonly ToolStripMenuItem _statusItem;
     private readonly ToolStripMenuItem _connectItem;
     private readonly ToolStripMenuItem _devicesItem;
     private readonly ToolStripMenuItem _signInItem;
@@ -28,16 +29,20 @@ internal sealed class TrayApp : ApplicationContext
 
     public TrayApp()
     {
+        _statusItem = DisabledItem("Starting…");
         _connectItem = new ToolStripMenuItem("Connect to device", null, async (_, _) => await ConnectAsync());
         _devicesItem = new ToolStripMenuItem("Devices");
         _devicesItem.DropDownItems.Add(DisabledItem("Loading…"));
         _signInItem = new ToolStripMenuItem("Sign in again", null, async (_, _) => await ReauthenticateAsync());
 
-        var menu = new ContextMenuStrip();
+        var menu = new ContextMenuStrip { ShowItemToolTips = true };
+        menu.Items.Add(_statusItem);
+        menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add(_connectItem);
         menu.Items.Add(_devicesItem);
         menu.Items.Add(_signInItem);
         menu.Items.Add(new ToolStripSeparator());
+        menu.Items.Add("Open log", null, (_, _) => OpenLog());
         menu.Items.Add("Exit", null, (_, _) => ExitThread());
         menu.Opening += async (_, _) => await RefreshDevicesAsync();
 
@@ -67,6 +72,7 @@ internal sealed class TrayApp : ApplicationContext
         }
 
         _connectItem.Text = $"Connect to \"{_settings.DeviceName}\"";
+        AppLog.Write($"started; configured device = \"{_settings.DeviceName}\"");
         if (await SignInAsync())
         {
             await ConnectAsync();
@@ -93,7 +99,7 @@ internal sealed class TrayApp : ApplicationContext
     {
         var spotify = await _auth!.SignInAsync(ct);
         _player = new SpotifyPlayerGateway(spotify);
-        _connector = new DeviceConnector(_player);
+        _connector = new DeviceConnector(_player, AppLog.Write);
         SetStatus("signed in");
     });
 
@@ -107,6 +113,7 @@ internal sealed class TrayApp : ApplicationContext
 
         var name = deviceName ?? _settings.DeviceName;
         var result = await _connector.ConnectAsync(name, ct);
+        AppLog.Write($"connect \"{name}\": {result.Status}");
         switch (result.Status)
         {
             case ConnectStatus.Transferred:
@@ -213,6 +220,12 @@ internal sealed class TrayApp : ApplicationContext
             ReportError("Could not reach Spotify", ex.Message);
             return false;
         }
+        catch (Exception ex)
+        {
+            AppLog.Write($"unexpected: {ex}");
+            ReportError("Unexpected error", ex.Message);
+            return false;
+        }
         finally
         {
             _busy = false;
@@ -230,11 +243,17 @@ internal sealed class TrayApp : ApplicationContext
     {
         var text = $"Leveplay — {status}";
         _icon.Text = text.Length <= MaxTooltipLength ? text : text[..MaxTooltipLength];
+
+        // Mirrored in the menu because Windows often hides balloon notifications.
+        _statusItem.Text = char.ToUpperInvariant(status[0]) + status[1..];
+        _statusItem.ToolTipText = null;
     }
 
     private void ReportError(string title, string message)
     {
+        AppLog.Write($"error: {title}: {message}");
         SetStatus(title.ToLowerInvariant());
+        _statusItem.Text = $"{title}: {message}";
         _icon.ShowBalloonTip(10_000, $"Leveplay: {title}", message, ToolTipIcon.Error);
     }
 
@@ -243,6 +262,12 @@ internal sealed class TrayApp : ApplicationContext
     {
         using var stream = typeof(TrayApp).Assembly.GetManifestResourceStream("Leveplay.Tray.leveplay.ico");
         return stream is null ? SystemIcons.Application : new Icon(stream, SystemInformation.SmallIconSize);
+    }
+
+    private static void OpenLog()
+    {
+        AppLog.Write("log opened from the tray menu");
+        Process.Start(new ProcessStartInfo(AppLog.FilePath) { UseShellExecute = true });
     }
 
     private static void OpenBrowser(Uri uri) =>
