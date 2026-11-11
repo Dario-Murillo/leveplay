@@ -27,7 +27,7 @@ depend on it.
 | -------------------------------------------------------------- | ----------- |
 | 1. Sign-in (Authorization Code + PKCE, silent on later starts) | Implemented |
 | 2. Find the configured device and transfer playback to it      | Implemented |
-| 3. Tray menu (Play/Pause, Next, Previous) and now-playing tooltip | Planned  |
+| 3. Tray menu (Play/Pause, Next, Previous) and now-playing tooltip | Implemented |
 | 4. Global hotkeys, auto-start, Native AOT packaging            | Planned     |
 
 > **Known issue with spotifyd:** playback through spotifyd/librespot currently fails for
@@ -55,6 +55,16 @@ dotnet run --project src/Leveplay.Tray
 On the first run the browser opens for Spotify sign-in. The refresh token is then stored
 encrypted (DPAPI, current Windows user) in `%APPDATA%\Leveplay\token.bin`, and later
 starts sign in without a browser. Hover the tray icon to see the current status.
+
+## Using it
+
+- **Left click** the tray icon to play or pause.
+- **Right click** for the menu: Play/Pause, Next, Previous, and a `Devices` submenu
+  that lists every online Spotify Connect device and switches playback on click.
+- **Hover** the icon to see what is playing.
+
+If nothing has been played yet, Play starts `DefaultContextUri` on the configured device.
+A diagnostic log is kept at `%APPDATA%\Leveplay\leveplay.log` (menu: "Open log").
 
 ## Configuration
 
