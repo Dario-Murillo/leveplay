@@ -49,7 +49,11 @@ public sealed class DeviceConnector(IPlayerGateway player)
             return new ConnectResult(ConnectStatus.AlreadyActive, device, names);
         }
 
-        await player.TransferPlaybackAsync(device.Id, ct).ConfigureAwait(false);
+        // Spotify pauses on transfer unless told otherwise, so carry the current state
+        // over: music that was playing keeps playing, and a paused session stays paused.
+        var wasPlaying = devices.Any(d => d.IsActive)
+                         && await player.IsPlayingAsync(ct).ConfigureAwait(false);
+        await player.TransferPlaybackAsync(device.Id, wasPlaying, ct).ConfigureAwait(false);
         return new ConnectResult(ConnectStatus.Transferred, device, names);
     }
 

@@ -7,13 +7,23 @@ public sealed class DeviceConnectorTests
     private sealed class FakePlayer(params ConnectDevice[] devices) : IPlayerGateway
     {
         public List<string> Transfers { get; } = [];
+        public List<bool> PlayFlags { get; } = [];
+        public bool IsPlaying { get; init; }
+        public int IsPlayingCalls { get; private set; }
 
         public Task<IReadOnlyList<ConnectDevice>> GetDevicesAsync(CancellationToken ct = default) =>
             Task.FromResult<IReadOnlyList<ConnectDevice>>(devices);
 
-        public Task TransferPlaybackAsync(string deviceId, CancellationToken ct = default)
+        public Task<bool> IsPlayingAsync(CancellationToken ct = default)
+        {
+            IsPlayingCalls++;
+            return Task.FromResult(IsPlaying);
+        }
+
+        public Task TransferPlaybackAsync(string deviceId, bool play, CancellationToken ct = default)
         {
             Transfers.Add(deviceId);
+            PlayFlags.Add(play);
             return Task.CompletedTask;
         }
     }
@@ -32,6 +42,32 @@ public sealed class DeviceConnectorTests
         Assert.Equal(ConnectStatus.Transferred, result.Status);
         Assert.True(result.IsConnected);
         Assert.Equal(["pc-id"], player.Transfers);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Transfer_keeps_the_current_play_state(bool wasPlaying)
+    {
+        var player = new FakePlayer(Device("Phone", "phone-id", active: true), Device("Leveplay", "pc-id"))
+        {
+            IsPlaying = wasPlaying,
+        };
+
+        await new DeviceConnector(player).ConnectAsync("Leveplay");
+
+        Assert.Equal([wasPlaying], player.PlayFlags);
+    }
+
+    [Fact]
+    public async Task Transfer_does_not_start_playback_when_no_device_was_active()
+    {
+        var player = new FakePlayer(Device("Leveplay", "pc-id")) { IsPlaying = true };
+
+        await new DeviceConnector(player).ConnectAsync("Leveplay");
+
+        Assert.Equal([false], player.PlayFlags);
+        Assert.Equal(0, player.IsPlayingCalls);
     }
 
     [Fact]

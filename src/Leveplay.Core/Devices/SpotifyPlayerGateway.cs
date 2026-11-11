@@ -13,6 +13,13 @@ public sealed class SpotifyPlayerGateway(ISpotifyClient client) : IPlayerGateway
             .ToList();
     }
 
-    public Task TransferPlaybackAsync(string deviceId, CancellationToken ct = default) =>
-        client.Player.TransferPlayback(new PlayerTransferPlaybackRequest([deviceId]) { Play = false }, ct);
+    public async Task<bool> IsPlayingAsync(CancellationToken ct = default)
+    {
+        // The API answers 204 with no body when there is no active playback.
+        var playback = await client.Player.GetCurrentPlayback(ct).ConfigureAwait(false);
+        return playback?.IsPlaying ?? false;
+    }
+
+    public Task TransferPlaybackAsync(string deviceId, bool play, CancellationToken ct = default) =>
+        client.Player.TransferPlayback(new PlayerTransferPlaybackRequest([deviceId]) { Play = play }, ct);
 }

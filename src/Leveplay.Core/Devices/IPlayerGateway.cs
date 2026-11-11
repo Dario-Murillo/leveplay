@@ -13,6 +13,10 @@ public interface IPlayerGateway
 {
     Task<IReadOnlyList<ConnectDevice>> GetDevicesAsync(CancellationToken ct = default);
 
-    /// <summary>Makes the device the active one without changing the play/pause state.</summary>
-    Task TransferPlaybackAsync(string deviceId, CancellationToken ct = default);
+    /// <summary>True when something is playing right now on any device.</summary>
+    Task<bool> IsPlayingAsync(CancellationToken ct = default);
+
+    /// <summary>Makes the device the active one.</summary>
+    /// <param name="play">True to keep playing on the new device, false to leave it paused.</param>
+    Task TransferPlaybackAsync(string deviceId, bool play, CancellationToken ct = default);
 }
