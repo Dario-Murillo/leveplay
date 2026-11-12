@@ -3,8 +3,8 @@
 A lightweight Spotify player for Windows that lives in the system tray. It is meant for
 low-end PCs or for use while gaming, where the official desktop client is too heavy.
 
-There is no main window: a tray icon shows what is playing, a click plays or pauses, and
-the music comes out of the computer Leveplay runs on.
+It runs as a tray icon that shows what is playing, with an optional mini player one
+click away, and the music comes out of the computer Leveplay runs on.
 
 ## How it works
 
@@ -60,7 +60,9 @@ Windows user) under `%APPDATA%\Leveplay`; later starts need no interaction.
 
 ## Using it
 
-- **Left click** the tray icon to play or pause.
+- **Left click** the tray icon to show or hide the mini player: cover, track, progress
+  (drag to seek), volume and transport buttons. Closing it only hides it. With the
+  window focused: Space plays or pauses, Ctrl+Right / Ctrl+Left skip, Esc hides.
 - **Right click** for the menu: Play/Pause, Next, Previous, and a `Devices` submenu
   that lists every online Spotify Connect device and switches playback on click.
 - **Hover** the icon to see what is playing.

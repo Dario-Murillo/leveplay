@@ -3,6 +3,7 @@ using Leveplay.Core.Auth;
 using Leveplay.Core.Config;
 using Leveplay.Core.Devices;
 using Leveplay.Core.Engine;
+using Leveplay.Tray.Player;
 using SpotifyAPI.Web;
 
 namespace Leveplay.Tray;
@@ -35,6 +36,9 @@ internal sealed class TrayApp : ApplicationContext
     private static readonly TimeSpan ErrorHold = TimeSpan.FromSeconds(15);
 
     private readonly NotifyIcon _icon;
+    private readonly Icon _appIcon = LoadTrayIcon();
+    private MiniPlayerForm? _miniPlayer;
+    private PlaybackState? _lastState;
     private readonly ToolStripMenuItem _statusItem;
     private readonly ToolStripMenuItem _playPauseItem;
     private readonly ToolStripMenuItem _nextItem;
@@ -86,6 +90,7 @@ internal sealed class TrayApp : ApplicationContext
         var menu = new ContextMenuStrip { ShowItemToolTips = true };
         menu.Items.Add(_statusItem);
         menu.Items.Add(new ToolStripSeparator());
+        menu.Items.Add("Show player", null, (_, _) => TogglePlayer());
         menu.Items.Add(_playPauseItem);
         menu.Items.Add(_nextItem);
         menu.Items.Add(_previousItem);
@@ -106,16 +111,16 @@ internal sealed class TrayApp : ApplicationContext
 
         _icon = new NotifyIcon
         {
-            Icon = LoadTrayIcon(),
+            Icon = _appIcon,
             ContextMenuStrip = menu,
             Visible = true,
         };
-        // Left click toggles play/pause; right click opens the menu.
-        _icon.MouseClick += async (_, e) =>
+        // Left click shows or hides the player; right click opens the menu.
+        _icon.MouseClick += (_, e) =>
         {
             if (e.Button == MouseButtons.Left)
             {
-                await PlayPauseAsync();
+                TogglePlayer();
             }
         };
         _pollTimer.Tick += async (_, _) => await PollAsync();
@@ -384,6 +389,55 @@ internal sealed class TrayApp : ApplicationContext
         await RefreshAfterCommandAsync(ct);
     });
 
+    /// <summary>
+    /// The player window is created the first time it is asked for, so running
+    /// tray-only never pays for it.
+    /// </summary>
+    private void TogglePlayer()
+    {
+        if (_miniPlayer is null)
+        {
+            _miniPlayer = new MiniPlayerForm(_appIcon);
+            _miniPlayer.PlayPauseRequested += async () => await PlayPauseAsync();
+            _miniPlayer.NextRequested += async () => await SkipAsync(next: true);
+            _miniPlayer.PreviousRequested += async () => await SkipAsync(next: false);
+            _miniPlayer.VolumeRequested += async percent => await SetVolumeAsync(percent);
+            _miniPlayer.SeekRequested += async position => await SeekAsync(position);
+            _miniPlayer.RefreshRequested += async () => await PollAsync();
+            _miniPlayer.ShowState(_lastState);
+        }
+
+        _miniPlayer.Toggle();
+    }
+
+    private async Task SetVolumeAsync(int percent)
+    {
+        // A volume change must not be dropped just because a poll or command is running.
+        for (var attempt = 0; _busy && attempt < 10; attempt++)
+        {
+            await Task.Delay(100);
+        }
+
+        await RunAsync(null, async ct =>
+        {
+            if (_playback is not null)
+            {
+                await _playback.SetVolumeAsync(percent, ct);
+            }
+        });
+    }
+
+    private Task<bool> SeekAsync(int positionMs) => RunAsync(null, async ct =>
+    {
+        if (_playback is null)
+        {
+            return;
+        }
+
+        await _playback.SeekAsync(positionMs, ct);
+        await RefreshAfterCommandAsync(ct);
+    });
+
     private async Task RefreshAfterCommandAsync(CancellationToken ct)
     {
         await Task.Delay(CommandSettleMilliseconds, ct);
@@ -425,6 +479,8 @@ internal sealed class TrayApp : ApplicationContext
             ? IdlePollMilliseconds
             : (_settings?.PollIntervalSeconds ?? 5) * 1000;
         _playPauseItem.Text = state is { IsPlaying: true } ? "Pause" : "Play";
+        _lastState = state;
+        _miniPlayer?.ShowState(state);
 
         if (DateTime.UtcNow >= _errorShownUntil)
         {
@@ -575,6 +631,7 @@ internal sealed class TrayApp : ApplicationContext
         _errorShownUntil = DateTime.UtcNow + ErrorHold;
         SetStatus(title.ToLowerInvariant());
         _statusItem.Text = $"{title}: {message}";
+        _miniPlayer?.ShowMessage($"{title}: {message}");
         _icon.ShowBalloonTip(10_000, $"Leveplay: {title}", message, ToolTipIcon.Error);
     }
 
@@ -599,6 +656,8 @@ internal sealed class TrayApp : ApplicationContext
         _shutdown.Cancel();
         _engine?.Dispose();
         _pollTimer.Dispose();
+        _miniPlayer?.CloseForExit();
+        _miniPlayer?.Dispose();
         _icon.Visible = false;
         _icon.Dispose();
         base.ExitThreadCore();
