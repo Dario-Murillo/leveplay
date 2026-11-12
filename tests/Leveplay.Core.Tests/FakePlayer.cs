@@ -45,6 +45,10 @@ internal sealed class FakePlayer(params ConnectDevice[] devices) : IPlayerGatewa
 
     public Task PreviousAsync(CancellationToken ct = default) => Record("previous");
 
+    public Task SetVolumeAsync(int percent, CancellationToken ct = default) => Record($"volume {percent}");
+
+    public Task SeekAsync(int positionMs, CancellationToken ct = default) => Record($"seek {positionMs}");
+
     private Task Record(string command)
     {
         Commands.Add(command);

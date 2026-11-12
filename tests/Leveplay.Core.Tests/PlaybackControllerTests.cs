@@ -103,6 +103,59 @@ public sealed class PlaybackControllerTests
         Assert.Equal(expected, PlaybackController.Describe(new PlaybackState(playing, title, artist, "Leveplay")));
     }
 
+    [Theory]
+    [InlineData(40, "volume 40")]
+    [InlineData(150, "volume 100")]
+    [InlineData(-5, "volume 0")]
+    public async Task Volume_is_clamped_to_the_valid_range(int requested, string expected)
+    {
+        var player = new FakePlayer(Pc);
+
+        await new PlaybackController(player).SetVolumeAsync(requested);
+
+        Assert.Equal([expected], player.Commands);
+    }
+
+    [Fact]
+    public async Task Seek_never_goes_before_the_start()
+    {
+        var player = new FakePlayer(Pc);
+        var controller = new PlaybackController(player);
+
+        await controller.SeekAsync(90_000);
+        await controller.SeekAsync(-10);
+
+        Assert.Equal(["seek 90000", "seek 0"], player.Commands);
+    }
+
+    [Theory]
+    [InlineData(0, "0:00")]
+    [InlineData(59_999, "0:59")]
+    [InlineData(84_000, "1:24")]
+    [InlineData(3_723_000, "1:02:03")]
+    [InlineData(-500, "0:00")]
+    public void Formats_positions(int milliseconds, string expected)
+    {
+        Assert.Equal(expected, PlaybackController.FormatTime(milliseconds));
+    }
+
+    [Fact]
+    public void Picks_the_smallest_cover_that_is_large_enough()
+    {
+        var images = new[] { ("big", 640), ("medium", 300), ("small", 64) };
+
+        Assert.Equal("medium", PlaybackController.PickArtUrl(images));
+        Assert.Equal("small", PlaybackController.PickArtUrl(images, minWidth: 48));
+    }
+
+    [Fact]
+    public void Falls_back_to_the_widest_cover_and_handles_missing_art()
+    {
+        Assert.Equal("b", PlaybackController.PickArtUrl([("a", 32), ("b", 64)]));
+        Assert.Null(PlaybackController.PickArtUrl([]));
+        Assert.Null(PlaybackController.PickArtUrl(null));
+    }
+
     [Fact]
     public void Describes_the_absence_of_an_active_device()
     {

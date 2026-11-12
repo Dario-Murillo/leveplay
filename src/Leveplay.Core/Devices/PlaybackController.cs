@@ -62,6 +62,39 @@ public sealed class PlaybackController(IPlayerGateway player, Action<string>? lo
 
     public Task PreviousAsync(CancellationToken ct = default) => player.PreviousAsync(ct);
 
+    public Task SetVolumeAsync(int percent, CancellationToken ct = default) =>
+        player.SetVolumeAsync(Math.Clamp(percent, 0, 100), ct);
+
+    public Task SeekAsync(int positionMs, CancellationToken ct = default) =>
+        player.SeekAsync(Math.Max(0, positionMs), ct);
+
+    /// <summary>Formats a position as <c>m:ss</c>, or <c>h:mm:ss</c> for long episodes.</summary>
+    public static string FormatTime(int milliseconds)
+    {
+        var time = TimeSpan.FromMilliseconds(Math.Max(0, milliseconds));
+        return time.TotalHours >= 1
+            ? $"{(int)time.TotalHours}:{time.Minutes:00}:{time.Seconds:00}"
+            : $"{time.Minutes}:{time.Seconds:00}";
+    }
+
+    /// <summary>
+    /// Picks the smallest cover that is still at least <paramref name="minWidth"/> wide,
+    /// so a small player does not download a 640 px image. Falls back to the widest.
+    /// </summary>
+    public static string? PickArtUrl(IEnumerable<(string Url, int Width)>? images, int minWidth = 128)
+    {
+        var all = images?.Where(i => !string.IsNullOrEmpty(i.Url)).ToList();
+        if (all is null || all.Count == 0)
+        {
+            return null;
+        }
+
+        var bigEnough = all.Where(i => i.Width >= minWidth).ToList();
+        return bigEnough.Count > 0
+            ? bigEnough.MinBy(i => i.Width).Url
+            : all.MaxBy(i => i.Width).Url;
+    }
+
     /// <summary>One-line description for the tray tooltip, e.g. "▶ Song — Artist".</summary>
     public static string Describe(PlaybackState? state)
     {
