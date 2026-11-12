@@ -2,6 +2,7 @@ using System.Diagnostics;
 using Leveplay.Core.Auth;
 using Leveplay.Core.Config;
 using Leveplay.Core.Devices;
+using Leveplay.Core.Engine;
 using SpotifyAPI.Web;
 
 namespace Leveplay.Tray;
@@ -21,6 +22,15 @@ internal sealed class TrayApp : ApplicationContext
     /// <summary>Spotify needs a moment before a command shows up in the player state.</summary>
     private const int CommandSettleMilliseconds = 500;
 
+    /// <summary>How long to wait for a freshly started engine to show up as a device.</summary>
+    private const int EngineStartupAttempts = 15;
+
+    /// <summary>Environment variable used when no API key has been saved in the app.</summary>
+    private const string ApiKeyVariable = "SOLOIST_API_KEY";
+
+    /// <summary>Where users get Soloist; it may not be redistributed with Leveplay.</summary>
+    private const string EngineDownloadPage = "https://developer.spotify.com/documentation/soloist";
+
     /// <summary>How long an error stays on screen before polling may replace it.</summary>
     private static readonly TimeSpan ErrorHold = TimeSpan.FromSeconds(15);
 
@@ -38,6 +48,15 @@ internal sealed class TrayApp : ApplicationContext
     private IPlayerGateway? _player;
     private DeviceConnector? _connector;
     private PlaybackController? _playback;
+    private SoloistEngine? _engine;
+    private bool _engineJustStarted;
+    private bool _engineAdopted;
+    private readonly DpapiTokenStore _engineKeyStore = new(fileName: DpapiTokenStore.EngineApiKeyFile);
+    private readonly SynchronizationContext _ui = SynchronizationContext.Current!;
+    private readonly ToolStripMenuItem _engineItem;
+    private readonly ToolStripMenuItem _getEngineItem;
+    private readonly ToolStripMenuItem _apiKeyItem;
+    private readonly ToolStripMenuItem _startEngineItem;
     private readonly System.Windows.Forms.Timer _pollTimer = new() { Interval = IdlePollMilliseconds };
     private DateTime _errorShownUntil = DateTime.MinValue;
     private bool _busy;
@@ -54,6 +73,16 @@ internal sealed class TrayApp : ApplicationContext
         _devicesItem.DropDownItems.Add(DisabledItem("Loading…"));
         _signInItem = new ToolStripMenuItem("Sign in again", null, async (_, _) => await ReauthenticateAsync());
 
+        // The engine submenu reads as a three-step checklist: each step is ticked once
+        // done and the next one is the only thing left enabled.
+        _getEngineItem = new ToolStripMenuItem("1. Get Soloist…", null, (_, _) => OpenEngineFolder());
+        _apiKeyItem = new ToolStripMenuItem("2. Set API key…", null, async (_, _) => await ChangeApiKeyAsync());
+        _startEngineItem = new ToolStripMenuItem("3. Start", null, async (_, _) => await RestartEngineAsync());
+        _engineItem = new ToolStripMenuItem("Audio engine");
+        _engineItem.DropDownItems.Add(_getEngineItem);
+        _engineItem.DropDownItems.Add(_apiKeyItem);
+        _engineItem.DropDownItems.Add(_startEngineItem);
+
         var menu = new ContextMenuStrip { ShowItemToolTips = true };
         menu.Items.Add(_statusItem);
         menu.Items.Add(new ToolStripSeparator());
@@ -63,11 +92,17 @@ internal sealed class TrayApp : ApplicationContext
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add(_connectItem);
         menu.Items.Add(_devicesItem);
+        menu.Items.Add(new ToolStripSeparator());
+        menu.Items.Add(_engineItem);
         menu.Items.Add(_signInItem);
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add("Open log", null, (_, _) => OpenLog());
         menu.Items.Add("Exit", null, (_, _) => ExitThread());
-        menu.Opening += async (_, _) => await RefreshDevicesAsync();
+        menu.Opening += async (_, _) =>
+        {
+            UpdateMenu();
+            await RefreshDevicesAsync();
+        };
 
         _icon = new NotifyIcon
         {
@@ -106,10 +141,143 @@ internal sealed class TrayApp : ApplicationContext
 
         _connectItem.Text = $"Connect to \"{_settings.DeviceName}\"";
         AppLog.Write($"started; configured device = \"{_settings.DeviceName}\"");
-        if (await SignInAsync())
+
+        // Start the engine first so it has time to come online while we sign in.
+        StartEngine();
+        if (!await SignInAsync())
+        {
+            return;
+        }
+
+        // First run with Soloist installed: ask for the key right away instead of
+        // leaving the user to find the menu item.
+        if (GetEngineState() == EngineState.KeyNeeded)
+        {
+            await ChangeApiKeyAsync();
+            if (GetEngineState() == EngineState.KeyNeeded)
+            {
+                ReportError("Soloist API key needed", "Open Audio engine → Set API key to play on this computer.");
+            }
+
+            return;
+        }
+
+        await ConnectAsync();
+    }
+
+    private enum EngineState
+    {
+        NotInstalled,
+        KeyNeeded,
+        Stopped,
+        Running,
+    }
+
+    private EngineState GetEngineState()
+    {
+        if (_settings is null || EngineLocator.Resolve(_settings.EnginePath) is null)
+        {
+            return EngineState.NotInstalled;
+        }
+
+        if (_engineAdopted || _engine is { IsRunning: true })
+        {
+            return EngineState.Running;
+        }
+
+        return LoadApiKey() is null ? EngineState.KeyNeeded : EngineState.Stopped;
+    }
+
+    private string? LoadApiKey()
+    {
+        var apiKey = _engineKeyStore.Load() ?? Environment.GetEnvironmentVariable(ApiKeyVariable);
+        return string.IsNullOrWhiteSpace(apiKey) ? null : apiKey.Trim();
+    }
+
+    /// <summary>
+    /// Launches Soloist when it is installed, either in Leveplay's engine folder or at
+    /// <c>EnginePath</c>. Without it, Leveplay only controls devices that are already running.
+    /// </summary>
+    private void StartEngine()
+    {
+        if (_settings is null || EngineLocator.Resolve(_settings.EnginePath) is not { } enginePath)
+        {
+            AppLog.Write($"engine: not installed (looked in {EngineLocator.DefaultDirectory})");
+            return;
+        }
+
+        if (LoadApiKey() is not { } apiKey)
+        {
+            AppLog.Write("engine: installed, but no API key has been saved yet");
+            return;
+        }
+
+        // Recreated on every start: the executable may have been installed or replaced.
+        _engine?.Dispose();
+        _engine = new SoloistEngine(enginePath, _settings.DeviceName, AppLog.Write);
+        _engine.ExitedUnexpectedly += code => _ui.Post(_ => OnEngineExited(code), null);
+
+        try
+        {
+            var start = _engine.Start(apiKey);
+            _engineJustStarted = start == EngineStart.Started;
+            _engineAdopted = start == EngineStart.AlreadyRunning;
+        }
+        catch (EngineException ex)
+        {
+            ReportError("Could not start Soloist", ex.Message);
+        }
+    }
+
+    private void OnEngineExited(int exitCode)
+    {
+        _engineJustStarted = false;
+        var hint = exitCode == SoloistEngine.ExpiredBuildExitCode
+            ? " Open Audio engine → Get Soloist, replace the file, then Start."
+            : "";
+        ReportError("Audio engine stopped", SoloistEngine.DescribeExit(exitCode) + hint);
+    }
+
+    /// <summary>Starts (or restarts) the engine on demand, e.g. after installing or updating it.</summary>
+    private async Task RestartEngineAsync()
+    {
+        if (_busy)
+        {
+            return;
+        }
+
+        _engine?.Stop();
+        _engineAdopted = false;
+        StartEngine();
+        UpdateMenu();
+        if (GetEngineState() == EngineState.Running && _connector is not null)
         {
             await ConnectAsync();
         }
+    }
+
+    /// <summary>
+    /// Opens the official download page together with the folder the file goes into.
+    /// Leveplay does not download Soloist itself: Spotify asks that users get it from them.
+    /// </summary>
+    private static void OpenEngineFolder()
+    {
+        Directory.CreateDirectory(EngineLocator.DefaultDirectory);
+        AppLog.Write($"engine: opening {EngineLocator.DefaultDirectory} and the download page");
+        Process.Start(new ProcessStartInfo(EngineLocator.DefaultDirectory) { UseShellExecute = true });
+        Process.Start(new ProcessStartInfo(EngineDownloadPage) { UseShellExecute = true });
+    }
+
+    private async Task ChangeApiKeyAsync()
+    {
+        if (_busy || ApiKeyPrompt.Ask() is not { } apiKey)
+        {
+            return;
+        }
+
+        _engineKeyStore.Save(apiKey);
+        AppLog.Write("engine: API key updated");
+        await RestartEngineAsync();
     }
 
     private async Task ReauthenticateAsync()
@@ -150,6 +318,20 @@ internal sealed class TrayApp : ApplicationContext
 
         var name = deviceName ?? _settings.DeviceName;
         var result = await _connector.ConnectAsync(name, ct);
+
+        // A freshly started engine needs a few seconds to register with Spotify.
+        var waitingForEngine = _engineJustStarted && deviceName is null;
+        _engineJustStarted = false;
+        for (var attempt = 1;
+             waitingForEngine && result.Status == ConnectStatus.NotFound && attempt < EngineStartupAttempts
+             && _engine is { IsRunning: true };
+             attempt++)
+        {
+            SetStatus("starting audio engine…");
+            await Task.Delay(1000, ct);
+            result = await _connector.ConnectAsync(name, ct);
+        }
+
         AppLog.Write($"connect \"{name}\": {result.Status}");
         switch (result.Status)
         {
@@ -166,7 +348,7 @@ internal sealed class TrayApp : ApplicationContext
 
             case ConnectStatus.NotFound:
                 var available = result.AvailableDeviceNames.Count == 0
-                    ? "No Spotify devices are online. Start spotifyd or open Spotify on a device."
+                    ? "No Spotify devices are online. Start the audio engine or open Spotify on a device."
                     : $"Online devices: {string.Join(", ", result.AvailableDeviceNames)}.";
                 ReportError("Device not found", $"\"{name}\" is not online. {available}");
                 break;
@@ -357,6 +539,23 @@ internal sealed class TrayApp : ApplicationContext
     {
         _signInItem.Enabled = _auth is not null && !_busy;
         _connectItem.Enabled = _connector is not null && !_busy;
+
+        var engine = GetEngineState();
+        _engineItem.Text = engine switch
+        {
+            EngineState.NotInstalled => "Audio engine (not installed)",
+            EngineState.KeyNeeded => "Audio engine (API key needed)",
+            EngineState.Stopped => "Audio engine (stopped)",
+            _ => "Audio engine (running)",
+        };
+        _getEngineItem.Checked = engine != EngineState.NotInstalled;
+        _getEngineItem.Text = engine == EngineState.NotInstalled ? "1. Get Soloist…" : "1. Soloist installed (update…)";
+        _apiKeyItem.Checked = engine is EngineState.Stopped or EngineState.Running;
+        _apiKeyItem.Text = _apiKeyItem.Checked ? "2. API key saved (change…)" : "2. Set API key…";
+        _apiKeyItem.Enabled = engine != EngineState.NotInstalled && !_busy;
+        _startEngineItem.Checked = engine == EngineState.Running;
+        _startEngineItem.Text = engine == EngineState.Running ? "3. Running (restart)" : "3. Start";
+        _startEngineItem.Enabled = engine is EngineState.Stopped or EngineState.Running && !_busy;
         _playPauseItem.Enabled = _nextItem.Enabled = _previousItem.Enabled = _playback is not null && !_busy;
     }
 
@@ -398,6 +597,7 @@ internal sealed class TrayApp : ApplicationContext
     protected override void ExitThreadCore()
     {
         _shutdown.Cancel();
+        _engine?.Dispose();
         _pollTimer.Dispose();
         _icon.Visible = false;
         _icon.Dispose();

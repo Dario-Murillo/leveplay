@@ -62,6 +62,15 @@ public static class AppSettingsLoader
             throw new SettingsException($"Settings have an invalid value: {ex.Message}");
         }
 
+        if (!string.IsNullOrWhiteSpace(settings.EnginePath))
+        {
+            settings.EnginePath = Environment.ExpandEnvironmentVariables(settings.EnginePath.Trim());
+        }
+        else
+        {
+            settings.EnginePath = null;
+        }
+
         Validate(settings);
         return settings;
     }
@@ -83,6 +92,11 @@ public static class AppSettingsLoader
         if (settings.PollIntervalSeconds < 1)
         {
             throw new SettingsException("PollIntervalSeconds must be at least 1.");
+        }
+
+        if (settings.EnginePath is not null && !File.Exists(settings.EnginePath))
+        {
+            throw new SettingsException($"EnginePath does not exist: {settings.EnginePath}");
         }
     }
 }
