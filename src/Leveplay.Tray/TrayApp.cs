@@ -28,6 +28,9 @@ internal sealed class TrayApp : ApplicationContext
     /// <summary>Environment variable used when no API key has been saved in the app.</summary>
     private const string ApiKeyVariable = "SOLOIST_API_KEY";
 
+    /// <summary>Where users get Soloist; it may not be redistributed with Leveplay.</summary>
+    private const string EngineDownloadPage = "https://developer.spotify.com/documentation/soloist";
+
     /// <summary>How long an error stays on screen before polling may replace it.</summary>
     private static readonly TimeSpan ErrorHold = TimeSpan.FromSeconds(15);
 
@@ -50,6 +53,7 @@ internal sealed class TrayApp : ApplicationContext
     private readonly DpapiTokenStore _engineKeyStore = new(fileName: DpapiTokenStore.EngineApiKeyFile);
     private readonly SynchronizationContext _ui = SynchronizationContext.Current!;
     private readonly ToolStripMenuItem _apiKeyItem;
+    private readonly ToolStripMenuItem _startEngineItem;
     private readonly System.Windows.Forms.Timer _pollTimer = new() { Interval = IdlePollMilliseconds };
     private DateTime _errorShownUntil = DateTime.MinValue;
     private bool _busy;
@@ -69,6 +73,10 @@ internal sealed class TrayApp : ApplicationContext
         {
             Visible = false,
         };
+        _startEngineItem = new ToolStripMenuItem("Start audio engine", null, async (_, _) => await RestartEngineAsync())
+        {
+            Visible = false,
+        };
 
         var menu = new ContextMenuStrip { ShowItemToolTips = true };
         menu.Items.Add(_statusItem);
@@ -81,10 +89,16 @@ internal sealed class TrayApp : ApplicationContext
         menu.Items.Add(_devicesItem);
         menu.Items.Add(_signInItem);
         menu.Items.Add(_apiKeyItem);
+        menu.Items.Add(_startEngineItem);
+        menu.Items.Add("Get Soloist…", null, (_, _) => OpenEngineFolder());
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add("Open log", null, (_, _) => OpenLog());
         menu.Items.Add("Exit", null, (_, _) => ExitThread());
-        menu.Opening += async (_, _) => await RefreshDevicesAsync();
+        menu.Opening += async (_, _) =>
+        {
+            UpdateMenu();
+            await RefreshDevicesAsync();
+        };
 
         _icon = new NotifyIcon
         {
@@ -133,13 +147,14 @@ internal sealed class TrayApp : ApplicationContext
     }
 
     /// <summary>
-    /// Launches Soloist when <c>EnginePath</c> is configured. Without it, Leveplay only
-    /// controls devices that are already running.
+    /// Launches Soloist when it is installed, either in Leveplay's engine folder or at
+    /// <c>EnginePath</c>. Without it, Leveplay only controls devices that are already running.
     /// </summary>
     private void StartEngine()
     {
-        if (_settings?.EnginePath is not { } enginePath)
+        if (_settings is null || EngineLocator.Resolve(_settings.EnginePath) is not { } enginePath)
         {
+            AppLog.Write($"engine: not installed (looked in {EngineLocator.DefaultDirectory})");
             return;
         }
 
@@ -151,11 +166,10 @@ internal sealed class TrayApp : ApplicationContext
             return;
         }
 
-        if (_engine is null)
-        {
-            _engine = new SoloistEngine(enginePath, _settings.DeviceName, AppLog.Write);
-            _engine.ExitedUnexpectedly += code => _ui.Post(_ => OnEngineExited(code), null);
-        }
+        // Recreated on every start: the executable may have been installed or replaced.
+        _engine?.Dispose();
+        _engine = new SoloistEngine(enginePath, _settings.DeviceName, AppLog.Write);
+        _engine.ExitedUnexpectedly += code => _ui.Post(_ => OnEngineExited(code), null);
 
         try
         {
@@ -170,7 +184,38 @@ internal sealed class TrayApp : ApplicationContext
     private void OnEngineExited(int exitCode)
     {
         _engineJustStarted = false;
-        ReportError("Audio engine stopped", SoloistEngine.DescribeExit(exitCode));
+        var hint = exitCode == SoloistEngine.ExpiredBuildExitCode
+            ? " Use \"Get Soloist…\", replace the file, then \"Start audio engine\"."
+            : "";
+        ReportError("Audio engine stopped", SoloistEngine.DescribeExit(exitCode) + hint);
+    }
+
+    /// <summary>Starts (or restarts) the engine on demand, e.g. after installing or updating it.</summary>
+    private async Task RestartEngineAsync()
+    {
+        if (_busy)
+        {
+            return;
+        }
+
+        _engine?.Stop();
+        StartEngine();
+        if (_engine is { IsRunning: true } && _connector is not null)
+        {
+            await ConnectAsync();
+        }
+    }
+
+    /// <summary>
+    /// Opens the official download page together with the folder the file goes into.
+    /// Leveplay does not download Soloist itself: Spotify asks that users get it from them.
+    /// </summary>
+    private static void OpenEngineFolder()
+    {
+        Directory.CreateDirectory(EngineLocator.DefaultDirectory);
+        AppLog.Write($"engine: opening {EngineLocator.DefaultDirectory} and the download page");
+        Process.Start(new ProcessStartInfo(EngineLocator.DefaultDirectory) { UseShellExecute = true });
+        Process.Start(new ProcessStartInfo(EngineDownloadPage) { UseShellExecute = true });
     }
 
     private async Task ChangeApiKeyAsync()
@@ -182,12 +227,7 @@ internal sealed class TrayApp : ApplicationContext
 
         _engineKeyStore.Save(apiKey);
         AppLog.Write("engine: API key updated");
-        _engine?.Stop();
-        StartEngine();
-        if (_connector is not null)
-        {
-            await ConnectAsync();
-        }
+        await RestartEngineAsync();
     }
 
     private async Task ReauthenticateAsync()
@@ -449,6 +489,13 @@ internal sealed class TrayApp : ApplicationContext
     {
         _signInItem.Enabled = _auth is not null && !_busy;
         _connectItem.Enabled = _connector is not null && !_busy;
+
+        // Offered whenever the engine could run but is not running: just installed,
+        // replaced after expiring, or stopped for any other reason.
+        _startEngineItem.Visible = _settings is not null
+            && _engine is not { IsRunning: true }
+            && EngineLocator.Resolve(_settings.EnginePath) is not null;
+        _startEngineItem.Enabled = !_busy;
         _playPauseItem.Enabled = _nextItem.Enabled = _previousItem.Enabled = _playback is not null && !_busy;
     }
 

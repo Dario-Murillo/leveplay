@@ -24,8 +24,8 @@ public sealed record AppSettings
     public int PollIntervalSeconds { get; set; } = 5;
 
     /// <summary>
-    /// Full path to <c>soloist.exe</c>. When set, Leveplay starts the audio engine with
-    /// <see cref="DeviceName"/> and stops it on exit. Environment variables are expanded.
+    /// Full path to <c>soloist.exe</c>, for when it is not in Leveplay's own engine
+    /// folder (<c>%LOCALAPPDATA%\Leveplay\engine</c>). Environment variables are expanded.
     /// </summary>
     public string? EnginePath { get; set; }
 

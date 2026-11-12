@@ -44,6 +44,43 @@ public sealed class SoloistEngineTests
     }
 }
 
+public sealed class EngineLocatorTests : IDisposable
+{
+    private readonly string _dir = Directory.CreateTempSubdirectory("leveplay-tests-").FullName;
+
+    public void Dispose() => Directory.Delete(_dir, recursive: true);
+
+    [Fact]
+    public void Finds_the_engine_in_the_default_folder()
+    {
+        var exe = Path.Combine(_dir, EngineLocator.ExecutableName);
+        File.WriteAllText(exe, "");
+
+        Assert.Equal(exe, EngineLocator.Resolve(configuredPath: null, _dir));
+    }
+
+    [Fact]
+    public void Reports_not_installed_when_the_default_folder_is_empty_or_missing()
+    {
+        Assert.Null(EngineLocator.Resolve(null, _dir));
+        Assert.Null(EngineLocator.Resolve("  ", Path.Combine(_dir, "missing")));
+    }
+
+    [Fact]
+    public void A_configured_path_wins_over_the_default_folder()
+    {
+        File.WriteAllText(Path.Combine(_dir, EngineLocator.ExecutableName), "");
+
+        Assert.Equal(@"D:\custom\soloist.exe", EngineLocator.Resolve(@"D:\custom\soloist.exe", _dir));
+    }
+
+    [Fact]
+    public void Default_folder_is_under_local_app_data()
+    {
+        Assert.EndsWith(Path.Combine("Leveplay", "engine"), EngineLocator.DefaultDirectory);
+    }
+}
+
 public sealed class EngineSettingsTests : IDisposable
 {
     private readonly string _dir = Directory.CreateTempSubdirectory("leveplay-tests-").FullName;
