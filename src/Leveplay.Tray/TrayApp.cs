@@ -38,6 +38,7 @@ internal sealed class TrayApp : ApplicationContext
     private readonly NotifyIcon _icon;
     private readonly Icon _appIcon = LoadTrayIcon();
     private MiniPlayerForm? _miniPlayer;
+    private readonly ToolStripMenuItem _playerItem;
     private PlaybackState? _lastState;
     private readonly ToolStripMenuItem _statusItem;
     private readonly ToolStripMenuItem _playPauseItem;
@@ -69,6 +70,7 @@ internal sealed class TrayApp : ApplicationContext
     public TrayApp()
     {
         _statusItem = DisabledItem("Starting…");
+        _playerItem = new ToolStripMenuItem("Show mini player", null, (_, _) => TogglePlayer());
         _playPauseItem = new ToolStripMenuItem("Play", null, async (_, _) => await PlayPauseAsync());
         _nextItem = new ToolStripMenuItem("Next", null, async (_, _) => await SkipAsync(next: true));
         _previousItem = new ToolStripMenuItem("Previous", null, async (_, _) => await SkipAsync(next: false));
@@ -90,7 +92,7 @@ internal sealed class TrayApp : ApplicationContext
         var menu = new ContextMenuStrip { ShowItemToolTips = true };
         menu.Items.Add(_statusItem);
         menu.Items.Add(new ToolStripSeparator());
-        menu.Items.Add("Show player", null, (_, _) => TogglePlayer());
+        menu.Items.Add(_playerItem);
         menu.Items.Add(_playPauseItem);
         menu.Items.Add(_nextItem);
         menu.Items.Add(_previousItem);
@@ -595,6 +597,8 @@ internal sealed class TrayApp : ApplicationContext
     {
         _signInItem.Enabled = _auth is not null && !_busy;
         _connectItem.Enabled = _connector is not null && !_busy;
+
+        _playerItem.Text = _miniPlayer is { Visible: true } ? "Hide mini player" : "Show mini player";
 
         var engine = GetEngineState();
         _engineItem.Text = engine switch
