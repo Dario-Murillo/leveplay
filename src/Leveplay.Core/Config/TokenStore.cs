@@ -12,19 +12,23 @@ public interface ITokenStore
 }
 
 /// <summary>
-/// Persists the refresh token under <c>%APPDATA%\Leveplay</c>, encrypted with DPAPI
-/// so that only the current Windows user can read it.
+/// Persists a secret (the refresh token, or the Soloist API key) under
+/// <c>%APPDATA%\Leveplay</c>, encrypted with DPAPI so that only the current Windows
+/// user can read it.
 /// </summary>
 [SupportedOSPlatform("windows")]
 public sealed class DpapiTokenStore : ITokenStore
 {
     private readonly string _path;
 
-    public DpapiTokenStore(string? directory = null)
+    public const string RefreshTokenFile = "token.bin";
+    public const string EngineApiKeyFile = "engine-key.bin";
+
+    public DpapiTokenStore(string? directory = null, string fileName = RefreshTokenFile)
     {
         directory ??= Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Leveplay");
-        _path = Path.Combine(directory, "token.bin");
+        _path = Path.Combine(directory, fileName);
     }
 
     public string? Load()

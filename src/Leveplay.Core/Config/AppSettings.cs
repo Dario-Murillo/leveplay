@@ -23,6 +23,12 @@ public sealed record AppSettings
     /// <summary>How often the player state is polled while a device is active.</summary>
     public int PollIntervalSeconds { get; set; } = 5;
 
+    /// <summary>
+    /// Full path to <c>soloist.exe</c>. When set, Leveplay starts the audio engine with
+    /// <see cref="DeviceName"/> and stops it on exit. Environment variables are expanded.
+    /// </summary>
+    public string? EnginePath { get; set; }
+
     [JsonIgnore]
     public Uri RedirectUri => new($"http://127.0.0.1:{RedirectPort}/callback");
 }
