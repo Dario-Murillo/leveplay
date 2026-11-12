@@ -77,6 +77,7 @@ Defaults are in `appsettings.json`; override them in `appsettings.local.json`.
 | `DeviceName`          | `Leveplay` | Name of the Connect device to control (spotifyd `device_name`) |
 | `DefaultContextUri`   | `null`     | Playlist/album URI to start when nothing is playing          |
 | `PollIntervalSeconds` | `5`        | How often player state is polled                             |
+| `EnginePath`          | `null`     | Path to `soloist.exe`. When set, Leveplay starts and stops the audio engine itself |
 
 ## Repository layout
 

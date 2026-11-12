@@ -2,6 +2,7 @@ using System.Diagnostics;
 using Leveplay.Core.Auth;
 using Leveplay.Core.Config;
 using Leveplay.Core.Devices;
+using Leveplay.Core.Engine;
 using SpotifyAPI.Web;
 
 namespace Leveplay.Tray;
@@ -21,6 +22,12 @@ internal sealed class TrayApp : ApplicationContext
     /// <summary>Spotify needs a moment before a command shows up in the player state.</summary>
     private const int CommandSettleMilliseconds = 500;
 
+    /// <summary>How long to wait for a freshly started engine to show up as a device.</summary>
+    private const int EngineStartupAttempts = 15;
+
+    /// <summary>Environment variable used when no API key has been saved in the app.</summary>
+    private const string ApiKeyVariable = "SOLOIST_API_KEY";
+
     /// <summary>How long an error stays on screen before polling may replace it.</summary>
     private static readonly TimeSpan ErrorHold = TimeSpan.FromSeconds(15);
 
@@ -38,6 +45,11 @@ internal sealed class TrayApp : ApplicationContext
     private IPlayerGateway? _player;
     private DeviceConnector? _connector;
     private PlaybackController? _playback;
+    private SoloistEngine? _engine;
+    private bool _engineJustStarted;
+    private readonly DpapiTokenStore _engineKeyStore = new(fileName: DpapiTokenStore.EngineApiKeyFile);
+    private readonly SynchronizationContext _ui = SynchronizationContext.Current!;
+    private readonly ToolStripMenuItem _apiKeyItem;
     private readonly System.Windows.Forms.Timer _pollTimer = new() { Interval = IdlePollMilliseconds };
     private DateTime _errorShownUntil = DateTime.MinValue;
     private bool _busy;
@@ -53,6 +65,10 @@ internal sealed class TrayApp : ApplicationContext
         _devicesItem = new ToolStripMenuItem("Devices");
         _devicesItem.DropDownItems.Add(DisabledItem("Loading…"));
         _signInItem = new ToolStripMenuItem("Sign in again", null, async (_, _) => await ReauthenticateAsync());
+        _apiKeyItem = new ToolStripMenuItem("Set Soloist API key…", null, async (_, _) => await ChangeApiKeyAsync())
+        {
+            Visible = false,
+        };
 
         var menu = new ContextMenuStrip { ShowItemToolTips = true };
         menu.Items.Add(_statusItem);
@@ -64,6 +80,7 @@ internal sealed class TrayApp : ApplicationContext
         menu.Items.Add(_connectItem);
         menu.Items.Add(_devicesItem);
         menu.Items.Add(_signInItem);
+        menu.Items.Add(_apiKeyItem);
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add("Open log", null, (_, _) => OpenLog());
         menu.Items.Add("Exit", null, (_, _) => ExitThread());
@@ -106,7 +123,68 @@ internal sealed class TrayApp : ApplicationContext
 
         _connectItem.Text = $"Connect to \"{_settings.DeviceName}\"";
         AppLog.Write($"started; configured device = \"{_settings.DeviceName}\"");
+
+        // Start the engine first so it has time to come online while we sign in.
+        StartEngine();
         if (await SignInAsync())
+        {
+            await ConnectAsync();
+        }
+    }
+
+    /// <summary>
+    /// Launches Soloist when <c>EnginePath</c> is configured. Without it, Leveplay only
+    /// controls devices that are already running.
+    /// </summary>
+    private void StartEngine()
+    {
+        if (_settings?.EnginePath is not { } enginePath)
+        {
+            return;
+        }
+
+        _apiKeyItem.Visible = true;
+        var apiKey = _engineKeyStore.Load() ?? Environment.GetEnvironmentVariable(ApiKeyVariable);
+        if (string.IsNullOrWhiteSpace(apiKey))
+        {
+            ReportError("Soloist API key missing", "Choose \"Set Soloist API key…\" in the menu.");
+            return;
+        }
+
+        if (_engine is null)
+        {
+            _engine = new SoloistEngine(enginePath, _settings.DeviceName, AppLog.Write);
+            _engine.ExitedUnexpectedly += code => _ui.Post(_ => OnEngineExited(code), null);
+        }
+
+        try
+        {
+            _engineJustStarted = _engine.Start(apiKey.Trim()) == EngineStart.Started;
+        }
+        catch (EngineException ex)
+        {
+            ReportError("Could not start Soloist", ex.Message);
+        }
+    }
+
+    private void OnEngineExited(int exitCode)
+    {
+        _engineJustStarted = false;
+        ReportError("Audio engine stopped", SoloistEngine.DescribeExit(exitCode));
+    }
+
+    private async Task ChangeApiKeyAsync()
+    {
+        if (_busy || ApiKeyPrompt.Ask() is not { } apiKey)
+        {
+            return;
+        }
+
+        _engineKeyStore.Save(apiKey);
+        AppLog.Write("engine: API key updated");
+        _engine?.Stop();
+        StartEngine();
+        if (_connector is not null)
         {
             await ConnectAsync();
         }
@@ -150,6 +228,20 @@ internal sealed class TrayApp : ApplicationContext
 
         var name = deviceName ?? _settings.DeviceName;
         var result = await _connector.ConnectAsync(name, ct);
+
+        // A freshly started engine needs a few seconds to register with Spotify.
+        var waitingForEngine = _engineJustStarted && deviceName is null;
+        _engineJustStarted = false;
+        for (var attempt = 1;
+             waitingForEngine && result.Status == ConnectStatus.NotFound && attempt < EngineStartupAttempts
+             && _engine is { IsRunning: true };
+             attempt++)
+        {
+            SetStatus("starting audio engine…");
+            await Task.Delay(1000, ct);
+            result = await _connector.ConnectAsync(name, ct);
+        }
+
         AppLog.Write($"connect \"{name}\": {result.Status}");
         switch (result.Status)
         {
@@ -166,7 +258,7 @@ internal sealed class TrayApp : ApplicationContext
 
             case ConnectStatus.NotFound:
                 var available = result.AvailableDeviceNames.Count == 0
-                    ? "No Spotify devices are online. Start spotifyd or open Spotify on a device."
+                    ? "No Spotify devices are online. Start the audio engine or open Spotify on a device."
                     : $"Online devices: {string.Join(", ", result.AvailableDeviceNames)}.";
                 ReportError("Device not found", $"\"{name}\" is not online. {available}");
                 break;
@@ -398,6 +490,7 @@ internal sealed class TrayApp : ApplicationContext
     protected override void ExitThreadCore()
     {
         _shutdown.Cancel();
+        _engine?.Dispose();
         _pollTimer.Dispose();
         _icon.Visible = false;
         _icon.Dispose();
