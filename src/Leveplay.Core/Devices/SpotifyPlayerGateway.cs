@@ -24,13 +24,25 @@ public sealed class SpotifyPlayerGateway(ISpotifyClient client) : IPlayerGateway
             return null;
         }
 
-        var (title, artist) = playback.Item switch
+        var (title, artist, durationMs, images) = playback.Item switch
         {
-            FullTrack track => (track.Name, string.Join(", ", track.Artists.Select(a => a.Name))),
-            FullEpisode episode => (episode.Name, episode.Show?.Name),
-            _ => ((string?)null, (string?)null),
+            FullTrack track => (
+                track.Name,
+                string.Join(", ", track.Artists.Select(a => a.Name)),
+                track.DurationMs,
+                track.Album?.Images),
+            FullEpisode episode => (episode.Name, episode.Show?.Name, episode.DurationMs, episode.Images),
+            _ => ((string?)null, (string?)null, 0, (List<Image>?)null),
         };
-        return new PlaybackState(playback.IsPlaying, title, artist, playback.Device.Name);
+        return new PlaybackState(
+            playback.IsPlaying,
+            title,
+            artist,
+            playback.Device.Name,
+            playback.ProgressMs,
+            durationMs,
+            playback.Device.VolumePercent,
+            PlaybackController.PickArtUrl(images?.Select(i => (i.Url, i.Width))));
     }
 
     public Task TransferPlaybackAsync(string deviceId, bool play, CancellationToken ct = default) =>
@@ -47,4 +59,10 @@ public sealed class SpotifyPlayerGateway(ISpotifyClient client) : IPlayerGateway
     public Task NextAsync(CancellationToken ct = default) => client.Player.SkipNext(ct);
 
     public Task PreviousAsync(CancellationToken ct = default) => client.Player.SkipPrevious(ct);
+
+    public Task SetVolumeAsync(int percent, CancellationToken ct = default) =>
+        client.Player.SetVolume(new PlayerVolumeRequest(percent), ct);
+
+    public Task SeekAsync(int positionMs, CancellationToken ct = default) =>
+        client.Player.SeekTo(new PlayerSeekToRequest(positionMs), ct);
 }

@@ -8,7 +8,17 @@ public sealed record ConnectDevice(string? Id, string Name, string Type, bool Is
 /// <summary>What the active device is doing right now.</summary>
 /// <param name="Title">Track or episode name; null when nothing is loaded.</param>
 /// <param name="Artist">Artists of a track, or the show of an episode.</param>
-public sealed record PlaybackState(bool IsPlaying, string? Title, string? Artist, string? DeviceName);
+/// <param name="VolumePercent">0-100, or null when the device does not report a volume.</param>
+/// <param name="ArtUrl">Cover image sized for a small player, when there is one.</param>
+public sealed record PlaybackState(
+    bool IsPlaying,
+    string? Title,
+    string? Artist,
+    string? DeviceName,
+    int ProgressMs = 0,
+    int DurationMs = 0,
+    int? VolumePercent = null,
+    string? ArtUrl = null);
 
 /// <summary>
 /// The slice of the Spotify player API that Leveplay uses. Kept small so the logic on
@@ -36,4 +46,9 @@ public interface IPlayerGateway
     Task NextAsync(CancellationToken ct = default);
 
     Task PreviousAsync(CancellationToken ct = default);
+
+    /// <param name="percent">0-100.</param>
+    Task SetVolumeAsync(int percent, CancellationToken ct = default);
+
+    Task SeekAsync(int positionMs, CancellationToken ct = default);
 }
