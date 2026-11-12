@@ -14,7 +14,7 @@ public sealed record AppSettings
     /// <summary>Loopback port for the OAuth callback. Must match the registered Redirect URI.</summary>
     public int RedirectPort { get; set; } = 5543;
 
-    /// <summary>Name of the Spotify Connect device to control (the spotifyd <c>device_name</c>).</summary>
+    /// <summary>Spotify Connect device to control; also the name the audio engine announces.</summary>
     public string DeviceName { get; set; } = "Leveplay";
 
     /// <summary>Playlist or album URI to start when nothing is playing yet.</summary>
