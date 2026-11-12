@@ -50,8 +50,11 @@ internal sealed class TrayApp : ApplicationContext
     private PlaybackController? _playback;
     private SoloistEngine? _engine;
     private bool _engineJustStarted;
+    private bool _engineAdopted;
     private readonly DpapiTokenStore _engineKeyStore = new(fileName: DpapiTokenStore.EngineApiKeyFile);
     private readonly SynchronizationContext _ui = SynchronizationContext.Current!;
+    private readonly ToolStripMenuItem _engineItem;
+    private readonly ToolStripMenuItem _getEngineItem;
     private readonly ToolStripMenuItem _apiKeyItem;
     private readonly ToolStripMenuItem _startEngineItem;
     private readonly System.Windows.Forms.Timer _pollTimer = new() { Interval = IdlePollMilliseconds };
@@ -69,14 +72,16 @@ internal sealed class TrayApp : ApplicationContext
         _devicesItem = new ToolStripMenuItem("Devices");
         _devicesItem.DropDownItems.Add(DisabledItem("Loading…"));
         _signInItem = new ToolStripMenuItem("Sign in again", null, async (_, _) => await ReauthenticateAsync());
-        _apiKeyItem = new ToolStripMenuItem("Set Soloist API key…", null, async (_, _) => await ChangeApiKeyAsync())
-        {
-            Visible = false,
-        };
-        _startEngineItem = new ToolStripMenuItem("Start audio engine", null, async (_, _) => await RestartEngineAsync())
-        {
-            Visible = false,
-        };
+
+        // The engine submenu reads as a three-step checklist: each step is ticked once
+        // done and the next one is the only thing left enabled.
+        _getEngineItem = new ToolStripMenuItem("1. Get Soloist…", null, (_, _) => OpenEngineFolder());
+        _apiKeyItem = new ToolStripMenuItem("2. Set API key…", null, async (_, _) => await ChangeApiKeyAsync());
+        _startEngineItem = new ToolStripMenuItem("3. Start", null, async (_, _) => await RestartEngineAsync());
+        _engineItem = new ToolStripMenuItem("Audio engine");
+        _engineItem.DropDownItems.Add(_getEngineItem);
+        _engineItem.DropDownItems.Add(_apiKeyItem);
+        _engineItem.DropDownItems.Add(_startEngineItem);
 
         var menu = new ContextMenuStrip { ShowItemToolTips = true };
         menu.Items.Add(_statusItem);
@@ -87,10 +92,9 @@ internal sealed class TrayApp : ApplicationContext
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add(_connectItem);
         menu.Items.Add(_devicesItem);
+        menu.Items.Add(new ToolStripSeparator());
+        menu.Items.Add(_engineItem);
         menu.Items.Add(_signInItem);
-        menu.Items.Add(_apiKeyItem);
-        menu.Items.Add(_startEngineItem);
-        menu.Items.Add("Get Soloist…", null, (_, _) => OpenEngineFolder());
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add("Open log", null, (_, _) => OpenLog());
         menu.Items.Add("Exit", null, (_, _) => ExitThread());
@@ -140,10 +144,54 @@ internal sealed class TrayApp : ApplicationContext
 
         // Start the engine first so it has time to come online while we sign in.
         StartEngine();
-        if (await SignInAsync())
+        if (!await SignInAsync())
         {
-            await ConnectAsync();
+            return;
         }
+
+        // First run with Soloist installed: ask for the key right away instead of
+        // leaving the user to find the menu item.
+        if (GetEngineState() == EngineState.KeyNeeded)
+        {
+            await ChangeApiKeyAsync();
+            if (GetEngineState() == EngineState.KeyNeeded)
+            {
+                ReportError("Soloist API key needed", "Open Audio engine → Set API key to play on this computer.");
+            }
+
+            return;
+        }
+
+        await ConnectAsync();
+    }
+
+    private enum EngineState
+    {
+        NotInstalled,
+        KeyNeeded,
+        Stopped,
+        Running,
+    }
+
+    private EngineState GetEngineState()
+    {
+        if (_settings is null || EngineLocator.Resolve(_settings.EnginePath) is null)
+        {
+            return EngineState.NotInstalled;
+        }
+
+        if (_engineAdopted || _engine is { IsRunning: true })
+        {
+            return EngineState.Running;
+        }
+
+        return LoadApiKey() is null ? EngineState.KeyNeeded : EngineState.Stopped;
+    }
+
+    private string? LoadApiKey()
+    {
+        var apiKey = _engineKeyStore.Load() ?? Environment.GetEnvironmentVariable(ApiKeyVariable);
+        return string.IsNullOrWhiteSpace(apiKey) ? null : apiKey.Trim();
     }
 
     /// <summary>
@@ -158,11 +206,9 @@ internal sealed class TrayApp : ApplicationContext
             return;
         }
 
-        _apiKeyItem.Visible = true;
-        var apiKey = _engineKeyStore.Load() ?? Environment.GetEnvironmentVariable(ApiKeyVariable);
-        if (string.IsNullOrWhiteSpace(apiKey))
+        if (LoadApiKey() is not { } apiKey)
         {
-            ReportError("Soloist API key missing", "Choose \"Set Soloist API key…\" in the menu.");
+            AppLog.Write("engine: installed, but no API key has been saved yet");
             return;
         }
 
@@ -173,7 +219,9 @@ internal sealed class TrayApp : ApplicationContext
 
         try
         {
-            _engineJustStarted = _engine.Start(apiKey.Trim()) == EngineStart.Started;
+            var start = _engine.Start(apiKey);
+            _engineJustStarted = start == EngineStart.Started;
+            _engineAdopted = start == EngineStart.AlreadyRunning;
         }
         catch (EngineException ex)
         {
@@ -185,7 +233,7 @@ internal sealed class TrayApp : ApplicationContext
     {
         _engineJustStarted = false;
         var hint = exitCode == SoloistEngine.ExpiredBuildExitCode
-            ? " Use \"Get Soloist…\", replace the file, then \"Start audio engine\"."
+            ? " Open Audio engine → Get Soloist, replace the file, then Start."
             : "";
         ReportError("Audio engine stopped", SoloistEngine.DescribeExit(exitCode) + hint);
     }
@@ -199,8 +247,10 @@ internal sealed class TrayApp : ApplicationContext
         }
 
         _engine?.Stop();
+        _engineAdopted = false;
         StartEngine();
-        if (_engine is { IsRunning: true } && _connector is not null)
+        UpdateMenu();
+        if (GetEngineState() == EngineState.Running && _connector is not null)
         {
             await ConnectAsync();
         }
@@ -490,12 +540,22 @@ internal sealed class TrayApp : ApplicationContext
         _signInItem.Enabled = _auth is not null && !_busy;
         _connectItem.Enabled = _connector is not null && !_busy;
 
-        // Offered whenever the engine could run but is not running: just installed,
-        // replaced after expiring, or stopped for any other reason.
-        _startEngineItem.Visible = _settings is not null
-            && _engine is not { IsRunning: true }
-            && EngineLocator.Resolve(_settings.EnginePath) is not null;
-        _startEngineItem.Enabled = !_busy;
+        var engine = GetEngineState();
+        _engineItem.Text = engine switch
+        {
+            EngineState.NotInstalled => "Audio engine (not installed)",
+            EngineState.KeyNeeded => "Audio engine (API key needed)",
+            EngineState.Stopped => "Audio engine (stopped)",
+            _ => "Audio engine (running)",
+        };
+        _getEngineItem.Checked = engine != EngineState.NotInstalled;
+        _getEngineItem.Text = engine == EngineState.NotInstalled ? "1. Get Soloist…" : "1. Soloist installed (update…)";
+        _apiKeyItem.Checked = engine is EngineState.Stopped or EngineState.Running;
+        _apiKeyItem.Text = _apiKeyItem.Checked ? "2. API key saved (change…)" : "2. Set API key…";
+        _apiKeyItem.Enabled = engine != EngineState.NotInstalled && !_busy;
+        _startEngineItem.Checked = engine == EngineState.Running;
+        _startEngineItem.Text = engine == EngineState.Running ? "3. Running (restart)" : "3. Start";
+        _startEngineItem.Enabled = engine is EngineState.Stopped or EngineState.Running && !_busy;
         _playPauseItem.Enabled = _nextItem.Enabled = _previousItem.Enabled = _playback is not null && !_busy;
     }
 

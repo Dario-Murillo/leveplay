@@ -31,6 +31,14 @@ public sealed class SoloistEngineTests
         Assert.Equal(expected, SoloistEngine.IsWorthLogging(line));
     }
 
+    [Theory]
+    [InlineData("2026-11-12 14:32:13.253: ready, device_name=Leveplay", "ready, device_name=Leveplay")]
+    [InlineData("no timestamp here", "no timestamp here")]
+    public void Engine_timestamps_are_stripped_from_log_lines(string line, string expected)
+    {
+        Assert.Equal(expected, SoloistEngine.StripTimestamp(line));
+    }
+
     [Fact]
     public void Starting_a_missing_executable_fails_with_a_clear_error()
     {

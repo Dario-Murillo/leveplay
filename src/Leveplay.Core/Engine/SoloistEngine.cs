@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.Diagnostics;
+using System.Text.RegularExpressions;
 
 namespace Leveplay.Core.Engine;
 
@@ -21,9 +22,12 @@ public sealed class EngineException(string message) : Exception(message);
 /// <param name="executablePath">Full path to <c>soloist.exe</c>.</param>
 /// <param name="deviceName">Name the engine announces as a Spotify Connect device.</param>
 /// <param name="log">Sink for the engine's own output. Never receives the API key.</param>
-public sealed class SoloistEngine(string executablePath, string deviceName, Action<string>? log = null)
+public sealed partial class SoloistEngine(string executablePath, string deviceName, Action<string>? log = null)
     : IDisposable
 {
+    [GeneratedRegex(@"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(\.\d+)?: ")]
+    private static partial Regex TimestampPrefix();
+
     /// <summary>Exit code Soloist uses when its build is older than 90 days.</summary>
     public const int ExpiredBuildExitCode = 10;
 
@@ -133,11 +137,14 @@ public sealed class SoloistEngine(string executablePath, string deviceName, Acti
     public static bool IsWorthLogging(string line) =>
         !string.IsNullOrWhiteSpace(line) && !line.Contains(": playing spotify:", StringComparison.Ordinal);
 
+    /// <summary>Drops Soloist's own timestamp; the log already adds one.</summary>
+    public static string StripTimestamp(string line) => TimestampPrefix().Replace(line, "");
+
     private void LogLine(string? line)
     {
         if (line is not null && IsWorthLogging(line))
         {
-            log?.Invoke($"engine: {line}");
+            log?.Invoke($"engine: {StripTimestamp(line)}");
         }
     }
 
