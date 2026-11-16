@@ -63,6 +63,8 @@ Windows user) under `%APPDATA%\Leveplay`; later starts need no interaction.
 - **Left click** the tray icon to show or hide the mini player: cover, track, progress
   (drag to seek), volume and transport buttons. Closing it only hides it. With the
   window focused: Space plays or pauses, Ctrl+Right / Ctrl+Left skip, Esc hides.
+- **Playlists**: the list button in the mini player expands it to show your playlists.
+  Double click one, or press Enter, to play it.
 - **Right click** for the menu: Play/Pause, Next, Previous, and a `Devices` submenu
   that lists every online Spotify Connect device and switches playback on click.
 - **Hover** the icon to see what is playing.

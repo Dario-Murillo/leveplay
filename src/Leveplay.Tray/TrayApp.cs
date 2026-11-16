@@ -3,6 +3,7 @@ using Leveplay.Core.Auth;
 using Leveplay.Core.Config;
 using Leveplay.Core.Devices;
 using Leveplay.Core.Engine;
+using Leveplay.Core.Library;
 using Leveplay.Tray.Player;
 using SpotifyAPI.Web;
 
@@ -53,6 +54,7 @@ internal sealed class TrayApp : ApplicationContext
     private IPlayerGateway? _player;
     private DeviceConnector? _connector;
     private PlaybackController? _playback;
+    private ILibraryGateway? _library;
     private SoloistEngine? _engine;
     private bool _engineJustStarted;
     private bool _engineAdopted;
@@ -299,6 +301,7 @@ internal sealed class TrayApp : ApplicationContext
         _player = null;
         _connector = null;
         _playback = null;
+        _library = null;
         if (await SignInAsync())
         {
             await ConnectAsync();
@@ -311,6 +314,7 @@ internal sealed class TrayApp : ApplicationContext
         _player = new SpotifyPlayerGateway(spotify);
         _connector = new DeviceConnector(_player, AppLog.Write);
         _playback = new PlaybackController(_player, AppLog.Write);
+        _library = new SpotifyLibraryGateway(spotify);
         SetStatus("signed in");
         _pollTimer.Start();
     });
@@ -406,11 +410,67 @@ internal sealed class TrayApp : ApplicationContext
             _miniPlayer.VolumeRequested += async percent => await SetVolumeAsync(percent);
             _miniPlayer.SeekRequested += async position => await SeekAsync(position);
             _miniPlayer.RefreshRequested += async () => await PollAsync();
+            _miniPlayer.PlaylistsRequested += async () => await LoadPlaylistsAsync();
+            _miniPlayer.PlayContextRequested += async uri => await PlayContextAsync(uri);
             _miniPlayer.ShowState(_lastState);
         }
 
         _miniPlayer.Toggle();
     }
+
+    /// <summary>
+    /// Fetches the playlists for the player window. Kept outside <see cref="RunAsync"/>
+    /// so a slow library never blocks the transport buttons.
+    /// </summary>
+    private async Task LoadPlaylistsAsync()
+    {
+        if (_library is null)
+        {
+            _miniPlayer?.ShowPlaylistsError("Sign in to see your playlists.");
+            return;
+        }
+
+        try
+        {
+            var playlists = await _library.GetPlaylistsAsync(_shutdown.Token);
+            AppLog.Write($"library: loaded {playlists.Count} playlists");
+            _miniPlayer?.ShowPlaylists(playlists);
+        }
+        catch (OperationCanceledException)
+        {
+            // App is exiting.
+        }
+        catch (APIException ex)
+        {
+            AppLog.Write($"library: {ex.Message}");
+            var forbidden = ex.Response?.StatusCode == System.Net.HttpStatusCode.Forbidden;
+            _miniPlayer?.ShowPlaylistsError(forbidden
+                ? "Leveplay needs permission to read your playlists.\nUse \"Sign in again\" in the tray menu."
+                : $"Could not load playlists.\n{ex.Message}");
+        }
+        catch (HttpRequestException ex)
+        {
+            AppLog.Write($"library: {ex.Message}");
+            _miniPlayer?.ShowPlaylistsError("Could not reach Spotify.");
+        }
+    }
+
+    private Task<bool> PlayContextAsync(string contextUri) => RunAsync(null, async ct =>
+    {
+        if (_playback is null || _settings is null)
+        {
+            return;
+        }
+
+        if (!await _playback.PlayContextAsync(contextUri, _settings.DeviceName, ct))
+        {
+            ReportError("Nothing to play on",
+                $"No device is active and \"{_settings.DeviceName}\" is not online. Pick one under Devices.");
+            return;
+        }
+
+        await RefreshAfterCommandAsync(ct);
+    });
 
     private async Task SetVolumeAsync(int percent)
     {

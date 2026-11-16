@@ -1,5 +1,6 @@
 using System.Drawing.Drawing2D;
 using Leveplay.Core.Devices;
+using Leveplay.Core.Library;
 
 namespace Leveplay.Tray.Player;
 
@@ -19,13 +20,17 @@ internal sealed class MiniPlayerForm : Form
 
     // Segoe MDL2 Assets ships with Windows 10 and 11.
     private const string IconFont = "Segoe MDL2 Assets";
-    private const string PreviousGlyph = "";
-    private const string PlayGlyph = "";
-    private const string PauseGlyph = "";
-    private const string NextGlyph = "";
-    private const string VolumeGlyph = "";
+    private const string PreviousGlyph = "\uE892";
+    private const string PlayGlyph = "\uE768";
+    private const string PauseGlyph = "\uE769";
+    private const string NextGlyph = "\uE893";
+    private const string VolumeGlyph = "\uE767";
 
     /// <summary>After the user moves the volume, ignore reported values for this long.</summary>
+    private const string LibraryGlyph = "\uE8FD";
+
+    /// <summary>Height of the compact player in design units; the library opens below it.</summary>
+    private const int CompactHeight = 178;
     private static readonly TimeSpan VolumeEchoGuard = TimeSpan.FromSeconds(3);
 
     private static readonly HttpClient ArtClient = new() { Timeout = TimeSpan.FromSeconds(10) };
@@ -41,6 +46,8 @@ internal sealed class MiniPlayerForm : Form
     private readonly SliderBar _progress;
     private readonly Label _elapsed;
     private readonly Label _duration;
+    private readonly LibraryPanel _library;
+    private bool _expanded;
     private readonly System.Windows.Forms.Timer _tick = new() { Interval = 500 };
     private readonly System.Windows.Forms.Timer _volumeDebounce = new() { Interval = 250 };
 
@@ -56,6 +63,12 @@ internal sealed class MiniPlayerForm : Form
     public event Action? PreviousRequested;
     public event Action<int>? VolumeRequested;
     public event Action<int>? SeekRequested;
+
+    /// <summary>Raised when the playlist list is needed (first expand, or reload).</summary>
+    public event Action? PlaylistsRequested;
+
+    /// <summary>Raised with the context URI of the playlist the user picked.</summary>
+    public event Action<string>? PlayContextRequested;
 
     /// <summary>Raised when the window believes its state is stale (e.g. the track ended).</summary>
     public event Action? RefreshRequested;
@@ -73,9 +86,10 @@ internal sealed class MiniPlayerForm : Form
         ShowInTaskbar = false;
         StartPosition = FormStartPosition.Manual;
         KeyPreview = true;
-        AutoScaleDimensions = new SizeF(96F, 96F);
+        // Mode first: assigning it resets the dimensions to the current display's.
         AutoScaleMode = AutoScaleMode.Dpi;
-        ClientSize = new Size(440, 178);
+        AutoScaleDimensions = Dpi.DesignSize;
+        ClientSize = new Size(440, CompactHeight);
 
         _art = new PictureBox
         {
@@ -86,7 +100,7 @@ internal sealed class MiniPlayerForm : Form
 
         _title = new Label
         {
-            Bounds = new Rectangle(134, 12, 290, 30),
+            Bounds = new Rectangle(134, 12, 252, 30),
             Font = new Font(Font.FontFamily, Font.Size + 3, FontStyle.Bold),
             AutoEllipsis = true,
             UseMnemonic = false,
@@ -151,9 +165,17 @@ internal sealed class MiniPlayerForm : Form
             SeekRequested?.Invoke(position);
         };
 
+        var libraryToggle = TransportButton(LibraryGlyph, new Rectangle(392, 11, 32, 30), "Playlists");
+        libraryToggle.ForeColor = DimColor;
+        libraryToggle.Click += (_, _) => SetExpanded(!_expanded);
+
+        _library = new LibraryPanel(Font) { Location = new Point(0, CompactHeight), Visible = false };
+        _library.ReloadRequested += () => PlaylistsRequested?.Invoke();
+        _library.PlaylistChosen += playlist => PlayContextRequested?.Invoke(playlist.Uri);
+
         Controls.AddRange([
             _art, _title, _artist, _device, _previous, _playPause, _next,
-            volumeIcon, _volume, _elapsed, _progress, _duration,
+            volumeIcon, _volume, _elapsed, _progress, _duration, libraryToggle, _library,
         ]);
 
         _tick.Tick += (_, _) => UpdateProgress();
@@ -181,6 +203,35 @@ internal sealed class MiniPlayerForm : Form
         Show();
         Activate();
         RefreshRequested?.Invoke();
+    }
+
+    public void ShowPlaylists(IReadOnlyList<PlaylistSummary> playlists) => _library.ShowPlaylists(playlists);
+
+    public void ShowPlaylistsError(string message) => _library.ShowError(message);
+
+    /// <summary>
+    /// Opens or closes the playlist list. The window grows upwards so its bottom edge
+    /// stays next to the tray.
+    /// </summary>
+    private void SetExpanded(bool expanded)
+    {
+        if (_expanded == expanded)
+        {
+            return;
+        }
+
+        _expanded = expanded;
+        var bottom = Bottom;
+        var height = this.Px(CompactHeight) + (expanded ? _library.Height : 0);
+        _library.Visible = expanded;
+        ClientSize = new Size(ClientSize.Width, height);
+        Top = Math.Max(Screen.FromControl(this).WorkingArea.Top, bottom - Height);
+
+        if (expanded && !_library.HasData)
+        {
+            _library.ShowLoading();
+            PlaylistsRequested?.Invoke();
+        }
     }
 
     /// <summary>Displays a playback snapshot; null means no device is active.</summary>
@@ -377,9 +428,9 @@ internal sealed class MiniPlayerForm : Form
 
         // Hairline above the progress row.
         using var pen = new Pen(Hover);
-        var y = LogicalToDeviceUnits(134);
+        var y = this.Px(134);
         e.Graphics.SmoothingMode = SmoothingMode.None;
-        e.Graphics.DrawLine(pen, LogicalToDeviceUnits(16), y, ClientSize.Width - LogicalToDeviceUnits(16), y);
+        e.Graphics.DrawLine(pen, this.Px(16), y, ClientSize.Width - this.Px(16), y);
     }
 
     protected override void Dispose(bool disposing)
