@@ -39,6 +39,7 @@ internal sealed class TrayApp : ApplicationContext
     private readonly NotifyIcon _icon;
     private readonly Icon _appIcon = LoadTrayIcon();
     private MiniPlayerForm? _miniPlayer;
+    private MainWindow? _mainWindow;
     private readonly ToolStripMenuItem _playerItem;
     private PlaybackState? _lastState;
     private readonly ToolStripMenuItem _statusItem;
@@ -94,6 +95,7 @@ internal sealed class TrayApp : ApplicationContext
         var menu = new ContextMenuStrip { ShowItemToolTips = true };
         menu.Items.Add(_statusItem);
         menu.Items.Add(new ToolStripSeparator());
+        menu.Items.Add("Open Leveplay", null, (_, _) => OpenMainWindow());
         menu.Items.Add(_playerItem);
         menu.Items.Add(_playPauseItem);
         menu.Items.Add(_nextItem);
@@ -311,10 +313,10 @@ internal sealed class TrayApp : ApplicationContext
     private Task<bool> SignInAsync() => RunAsync("signing in…", async ct =>
     {
         var spotify = await _auth!.SignInAsync(ct);
-        _player = new SpotifyPlayerGateway(spotify);
+        _player = new SpotifyPlayerGateway(spotify.Client);
         _connector = new DeviceConnector(_player, AppLog.Write);
         _playback = new PlaybackController(_player, AppLog.Write);
-        _library = new SpotifyLibraryGateway(spotify);
+        _library = new SpotifyLibraryGateway(spotify.Api, AppLog.Write);
         SetStatus("signed in");
         _pollTimer.Start();
     });
@@ -396,37 +398,61 @@ internal sealed class TrayApp : ApplicationContext
     });
 
     /// <summary>
-    /// The player window is created the first time it is asked for, so running
-    /// tray-only never pays for it.
+    /// Windows are created the first time they are asked for, so running tray-only
+    /// never pays for them.
     /// </summary>
     private void TogglePlayer()
     {
         if (_miniPlayer is null)
         {
             _miniPlayer = new MiniPlayerForm(_appIcon);
-            _miniPlayer.PlayPauseRequested += async () => await PlayPauseAsync();
-            _miniPlayer.NextRequested += async () => await SkipAsync(next: true);
-            _miniPlayer.PreviousRequested += async () => await SkipAsync(next: false);
-            _miniPlayer.VolumeRequested += async percent => await SetVolumeAsync(percent);
-            _miniPlayer.SeekRequested += async position => await SeekAsync(position);
-            _miniPlayer.RefreshRequested += async () => await PollAsync();
-            _miniPlayer.PlaylistsRequested += async () => await LoadPlaylistsAsync();
-            _miniPlayer.PlayContextRequested += async uri => await PlayContextAsync(uri);
-            _miniPlayer.ShowState(_lastState);
+            Wire(_miniPlayer.Player);
+            _miniPlayer.Player.ExtraRequested += OpenMainWindow;
         }
 
         _miniPlayer.Toggle();
+        if (_miniPlayer.Visible)
+        {
+            _ = PollAsync();
+        }
+    }
+
+    private void OpenMainWindow()
+    {
+        if (_mainWindow is null)
+        {
+            _mainWindow = new MainWindow(_appIcon);
+            Wire(_mainWindow.Player);
+            _mainWindow.PlaylistsRequested += async () => await LoadPlaylistsAsync();
+            _mainWindow.TracksRequested += async playlist => await LoadTracksAsync(playlist);
+            _mainWindow.PlayRequested += async (contextUri, trackUri) => await PlayContextAsync(contextUri, trackUri);
+        }
+
+        _mainWindow.Open();
+        _ = PollAsync();
+    }
+
+    /// <summary>Connects a now-playing strip to the playback commands and gives it the current state.</summary>
+    private void Wire(PlayerPanel player)
+    {
+        player.PlayPauseRequested += async () => await PlayPauseAsync();
+        player.NextRequested += async () => await SkipAsync(next: true);
+        player.PreviousRequested += async () => await SkipAsync(next: false);
+        player.VolumeRequested += async percent => await SetVolumeAsync(percent);
+        player.SeekRequested += async position => await SeekAsync(position);
+        player.RefreshRequested += async () => await PollAsync();
+        player.ShowState(_lastState);
     }
 
     /// <summary>
-    /// Fetches the playlists for the player window. Kept outside <see cref="RunAsync"/>
-    /// so a slow library never blocks the transport buttons.
+    /// Fetches the playlists for the main window. Library calls stay outside
+    /// <see cref="RunAsync"/> so a slow library never blocks the transport buttons.
     /// </summary>
     private async Task LoadPlaylistsAsync()
     {
         if (_library is null)
         {
-            _miniPlayer?.ShowPlaylistsError("Sign in to see your playlists.");
+            _mainWindow?.ShowPlaylistsError("Sign in to see your playlists.");
             return;
         }
 
@@ -434,7 +460,7 @@ internal sealed class TrayApp : ApplicationContext
         {
             var playlists = await _library.GetPlaylistsAsync(_shutdown.Token);
             AppLog.Write($"library: loaded {playlists.Count} playlists");
-            _miniPlayer?.ShowPlaylists(playlists);
+            _mainWindow?.ShowPlaylists(playlists);
         }
         catch (OperationCanceledException)
         {
@@ -442,27 +468,61 @@ internal sealed class TrayApp : ApplicationContext
         }
         catch (APIException ex)
         {
-            AppLog.Write($"library: {ex.Message}");
+            AppLog.Write($"library: playlists failed: {ex.Message}");
             var forbidden = ex.Response?.StatusCode == System.Net.HttpStatusCode.Forbidden;
-            _miniPlayer?.ShowPlaylistsError(forbidden
+            _mainWindow?.ShowPlaylistsError(forbidden
                 ? "Leveplay needs permission to read your playlists.\nUse \"Sign in again\" in the tray menu."
                 : $"Could not load playlists.\n{ex.Message}");
         }
         catch (HttpRequestException ex)
         {
-            AppLog.Write($"library: {ex.Message}");
-            _miniPlayer?.ShowPlaylistsError("Could not reach Spotify.");
+            AppLog.Write($"library: playlists failed: {ex.Message}");
+            _mainWindow?.ShowPlaylistsError("Could not reach Spotify.");
         }
     }
 
-    private Task<bool> PlayContextAsync(string contextUri) => RunAsync(null, async ct =>
+    private async Task LoadTracksAsync(PlaylistSummary playlist)
+    {
+        if (_library is null)
+        {
+            return;
+        }
+
+        try
+        {
+            var tracks = await _library.GetPlaylistTracksAsync(playlist.Id, _shutdown.Token);
+            AppLog.Write($"library: loaded {tracks.Count} tracks of \"{playlist.Name}\"");
+            _mainWindow?.ShowTracks(playlist, tracks);
+        }
+        catch (OperationCanceledException)
+        {
+            // App is exiting.
+        }
+        catch (LibraryAccessException ex)
+        {
+            AppLog.Write($"library: tracks of \"{playlist.Name}\" are not readable");
+            _mainWindow?.ShowTracksMessage(playlist, $"{ex.Message}\nPress Play to listen to it anyway.");
+        }
+        catch (APIException ex)
+        {
+            AppLog.Write($"library: tracks of \"{playlist.Name}\" failed: {ex.Message}");
+            _mainWindow?.ShowTracksMessage(playlist, $"Could not load the tracks.\n{ex.Message}");
+        }
+        catch (HttpRequestException ex)
+        {
+            AppLog.Write($"library: tracks of \"{playlist.Name}\" failed: {ex.Message}");
+            _mainWindow?.ShowTracksMessage(playlist, "Could not reach Spotify.");
+        }
+    }
+
+    private Task<bool> PlayContextAsync(string contextUri, string? trackUri) => RunAsync(null, async ct =>
     {
         if (_playback is null || _settings is null)
         {
             return;
         }
 
-        if (!await _playback.PlayContextAsync(contextUri, _settings.DeviceName, ct))
+        if (!await _playback.PlayContextAsync(contextUri, _settings.DeviceName, trackUri, ct))
         {
             ReportError("Nothing to play on",
                 $"No device is active and \"{_settings.DeviceName}\" is not online. Pick one under Devices.");
@@ -542,7 +602,8 @@ internal sealed class TrayApp : ApplicationContext
             : (_settings?.PollIntervalSeconds ?? 5) * 1000;
         _playPauseItem.Text = state is { IsPlaying: true } ? "Pause" : "Play";
         _lastState = state;
-        _miniPlayer?.ShowState(state);
+        _miniPlayer?.Player.ShowState(state);
+        _mainWindow?.Player.ShowState(state);
 
         if (DateTime.UtcNow >= _errorShownUntil)
         {
@@ -695,7 +756,8 @@ internal sealed class TrayApp : ApplicationContext
         _errorShownUntil = DateTime.UtcNow + ErrorHold;
         SetStatus(title.ToLowerInvariant());
         _statusItem.Text = $"{title}: {message}";
-        _miniPlayer?.ShowMessage($"{title}: {message}");
+        _miniPlayer?.Player.ShowMessage($"{title}: {message}");
+        _mainWindow?.Player.ShowMessage($"{title}: {message}");
         _icon.ShowBalloonTip(10_000, $"Leveplay: {title}", message, ToolTipIcon.Error);
     }
 
@@ -722,6 +784,8 @@ internal sealed class TrayApp : ApplicationContext
         _pollTimer.Dispose();
         _miniPlayer?.CloseForExit();
         _miniPlayer?.Dispose();
+        _mainWindow?.CloseForExit();
+        _mainWindow?.Dispose();
         _icon.Visible = false;
         _icon.Dispose();
         base.ExitThreadCore();

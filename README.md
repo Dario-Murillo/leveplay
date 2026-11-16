@@ -60,16 +60,22 @@ Windows user) under `%APPDATA%\Leveplay`; later starts need no interaction.
 
 ## Using it
 
-- **Left click** the tray icon to show or hide the mini player: cover, track, progress
-  (drag to seek), volume and transport buttons. Closing it only hides it. With the
-  window focused: Space plays or pauses, Ctrl+Right / Ctrl+Left skip, Esc hides.
-- **Playlists**: the list button in the mini player expands it to show your playlists.
-  Double click one, or press Enter, to play it.
+- **Open Leveplay** (tray menu, or the list button in the mini player) shows the main
+  window: your playlists on the left, the tracks of the selected one on the right and
+  the now-playing strip at the bottom. Double click a track to play the playlist from
+  there, or use Play for the whole playlist.
+- **Left click** the tray icon to show or hide the mini player: just the now-playing
+  strip, in the corner next to the tray.
 - **Right click** for the menu: Play/Pause, Next, Previous, and a `Devices` submenu
   that lists every online Spotify Connect device and switches playback on click.
 - **Hover** the icon to see what is playing.
+- **Shortcuts** in either window: Space plays or pauses, Ctrl+Right / Ctrl+Left skip.
 - **Audio engine** submenu: a three-step checklist (get Soloist, set the API key, start)
   that shows what is left to do and lets you restart the engine.
+
+Closing a window only hides it; Exit in the tray menu quits. Spotify only lets apps list
+the tracks of playlists you own or collaborate on, so followed playlists can be played
+but not browsed.
 
 If nothing has been played yet, Play starts `DefaultContextUri` on the configured device.
 A diagnostic log is kept at `%APPDATA%\Leveplay\leveplay.log` (menu: "Open log").
