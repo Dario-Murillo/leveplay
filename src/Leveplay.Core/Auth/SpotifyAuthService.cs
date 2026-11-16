@@ -14,6 +14,8 @@ public sealed class SpotifyAuthService(AppSettings settings, ITokenStore tokenSt
         Scopes.UserReadPlaybackState,
         Scopes.UserModifyPlaybackState,
         Scopes.UserReadCurrentlyPlaying,
+        Scopes.PlaylistReadPrivate,
+        Scopes.PlaylistReadCollaborative,
     ];
 
     /// <summary>How long to wait for the user to finish the browser flow.</summary>
@@ -43,9 +45,17 @@ public sealed class SpotifyAuthService(AppSettings settings, ITokenStore tokenSt
 
         try
         {
-            return await new OAuthClient()
+            var token = await new OAuthClient()
                 .RequestToken(new PKCETokenRefreshRequest(settings.ClientId, refreshToken), ct)
                 .ConfigureAwait(false);
+
+            // Keep the rotated token even if we are about to ask for consent again, so
+            // cancelling the browser flow does not sign the user out.
+            Persist(token);
+
+            // A token granted by an older version lacks scopes added since then. The
+            // only way to get them is a new consent screen.
+            return HasRequiredScopes(token.Scope) ? token : null;
         }
         catch (APIException)
         {
@@ -91,6 +101,22 @@ public sealed class SpotifyAuthService(AppSettings settings, ITokenStore tokenSt
         return await new OAuthClient()
             .RequestToken(new PKCETokenRequest(settings.ClientId, code, settings.RedirectUri, verifier), ct)
             .ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// True when a space-separated scope list covers everything Leveplay needs. An empty
+    /// list is accepted: without it there is nothing to compare, and asking for consent
+    /// on every start would be worse than a late permission error.
+    /// </summary>
+    public static bool HasRequiredScopes(string? grantedScopes)
+    {
+        if (string.IsNullOrWhiteSpace(grantedScopes))
+        {
+            return true;
+        }
+
+        var granted = grantedScopes.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        return RequiredScopes.All(required => granted.Contains(required, StringComparer.Ordinal));
     }
 
     private void Persist(PKCETokenResponse token)
