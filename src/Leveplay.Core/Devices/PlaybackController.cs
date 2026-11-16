@@ -49,7 +49,7 @@ public sealed class PlaybackController(IPlayerGateway player, Action<string>? lo
         if (!string.IsNullOrWhiteSpace(defaultContextUri))
         {
             log?.Invoke($"play: starting {defaultContextUri} on \"{device.Name}\"");
-            await player.PlayContextAsync(defaultContextUri, device.Id, ct).ConfigureAwait(false);
+            await player.PlayContextAsync(defaultContextUri, device.Id, ct: ct).ConfigureAwait(false);
             return PlayPauseOutcome.StartedDefault;
         }
 
@@ -62,12 +62,14 @@ public sealed class PlaybackController(IPlayerGateway player, Action<string>? lo
     /// Starts a playlist or album on the active device. When nothing is active it falls
     /// back to the configured device, and returns false if that one is not online either.
     /// </summary>
-    public async Task<bool> PlayContextAsync(string contextUri, string deviceName, CancellationToken ct = default)
+    /// <param name="startAtUri">Track inside the context to start from, or null for the first.</param>
+    public async Task<bool> PlayContextAsync(
+        string contextUri, string deviceName, string? startAtUri = null, CancellationToken ct = default)
     {
         var state = await player.GetPlaybackAsync(ct).ConfigureAwait(false);
         if (state is not null)
         {
-            await player.PlayContextAsync(contextUri, deviceId: null, ct).ConfigureAwait(false);
+            await player.PlayContextAsync(contextUri, deviceId: null, startAtUri, ct).ConfigureAwait(false);
             return true;
         }
 
@@ -79,7 +81,7 @@ public sealed class PlaybackController(IPlayerGateway player, Action<string>? lo
             return false;
         }
 
-        await player.PlayContextAsync(contextUri, device.Id, ct).ConfigureAwait(false);
+        await player.PlayContextAsync(contextUri, device.Id, startAtUri, ct).ConfigureAwait(false);
         return true;
     }
 

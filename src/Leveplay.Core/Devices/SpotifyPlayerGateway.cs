@@ -52,9 +52,17 @@ public sealed class SpotifyPlayerGateway(ISpotifyClient client) : IPlayerGateway
 
     public Task ResumeAsync(CancellationToken ct = default) => client.Player.ResumePlayback(ct);
 
-    public Task PlayContextAsync(string contextUri, string? deviceId, CancellationToken ct = default) =>
-        client.Player.ResumePlayback(
-            new PlayerResumePlaybackRequest { ContextUri = contextUri, DeviceId = deviceId }, ct);
+    public Task PlayContextAsync(
+        string contextUri, string? deviceId, string? startAtUri = null, CancellationToken ct = default)
+    {
+        var request = new PlayerResumePlaybackRequest { ContextUri = contextUri, DeviceId = deviceId };
+        if (startAtUri is not null)
+        {
+            request.OffsetParam = new PlayerResumePlaybackRequest.Offset { Uri = startAtUri };
+        }
+
+        return client.Player.ResumePlayback(request, ct);
+    }
 
     public Task NextAsync(CancellationToken ct = default) => client.Player.SkipNext(ct);
 

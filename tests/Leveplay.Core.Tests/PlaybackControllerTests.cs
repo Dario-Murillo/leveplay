@@ -104,6 +104,16 @@ public sealed class PlaybackControllerTests
     }
 
     [Fact]
+    public async Task A_chosen_track_starts_the_playlist_from_that_track()
+    {
+        var player = new FakePlayer(Pc) { Playback = State(playing: true) };
+
+        await new PlaybackController(player).PlayContextAsync(Playlist, "Leveplay", "spotify:track:t7");
+
+        Assert.Equal([$"play {Playlist} on active device from spotify:track:t7"], player.Commands);
+    }
+
+    [Fact]
     public async Task A_chosen_playlist_is_not_started_without_any_device()
     {
         var player = new FakePlayer();

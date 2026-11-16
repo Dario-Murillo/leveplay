@@ -42,7 +42,9 @@ public interface IPlayerGateway
 
     /// <summary>Starts a playlist, album or artist.</summary>
     /// <param name="deviceId">Target device, or null for the one that is already active.</param>
-    Task PlayContextAsync(string contextUri, string? deviceId, CancellationToken ct = default);
+    /// <param name="startAtUri">Track inside the context to start from, or null for the first.</param>
+    Task PlayContextAsync(
+        string contextUri, string? deviceId, string? startAtUri = null, CancellationToken ct = default);
 
     Task NextAsync(CancellationToken ct = default);
 

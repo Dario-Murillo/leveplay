@@ -38,8 +38,10 @@ internal sealed class FakePlayer(params ConnectDevice[] devices) : IPlayerGatewa
 
     public Task ResumeAsync(CancellationToken ct = default) => Record("resume");
 
-    public Task PlayContextAsync(string contextUri, string? deviceId, CancellationToken ct = default) =>
-        Record($"play {contextUri} on {deviceId ?? "active device"}");
+    public Task PlayContextAsync(
+        string contextUri, string? deviceId, string? startAtUri = null, CancellationToken ct = default) =>
+        Record($"play {contextUri} on {deviceId ?? "active device"}"
+               + (startAtUri is null ? "" : $" from {startAtUri}"));
 
     public Task NextAsync(CancellationToken ct = default) => Record("next");
 

@@ -1,7 +1,16 @@
 using Leveplay.Core.Config;
 using SpotifyAPI.Web;
+using SpotifyAPI.Web.Http;
 
 namespace Leveplay.Core.Auth;
+
+/// <summary>
+/// An authenticated connection to Spotify. Both members share one authenticator, so the
+/// access token is refreshed once for the two of them.
+/// </summary>
+/// <param name="Client">Typed client, used for the player endpoints.</param>
+/// <param name="Api">Raw connector, for endpoints the typed client no longer matches.</param>
+public sealed record SpotifySession(ISpotifyClient Client, IAPIConnector Api);
 
 /// <summary>
 /// Signs in with the Authorization Code + PKCE flow. The first run opens the browser;
@@ -21,7 +30,7 @@ public sealed class SpotifyAuthService(AppSettings settings, ITokenStore tokenSt
     /// <summary>How long to wait for the user to finish the browser flow.</summary>
     public TimeSpan InteractiveTimeout { get; init; } = TimeSpan.FromMinutes(3);
 
-    public async Task<SpotifyClient> SignInAsync(CancellationToken ct = default)
+    public async Task<SpotifySession> SignInAsync(CancellationToken ct = default)
     {
         var token = await TryRefreshAsync(ct).ConfigureAwait(false)
                     ?? await AuthorizeInteractivelyAsync(ct).ConfigureAwait(false);
@@ -31,7 +40,8 @@ public sealed class SpotifyAuthService(AppSettings settings, ITokenStore tokenSt
         var authenticator = new PKCEAuthenticator(settings.ClientId, token);
         authenticator.TokenRefreshed += (_, refreshed) => Persist(refreshed);
 
-        return new SpotifyClient(SpotifyClientConfig.CreateDefault().WithAuthenticator(authenticator));
+        var config = SpotifyClientConfig.CreateDefault().WithAuthenticator(authenticator);
+        return new SpotifySession(new SpotifyClient(config), config.BuildAPIConnector());
     }
 
     public void SignOut() => tokenStore.Clear();
