@@ -20,7 +20,7 @@ internal sealed class MainWindow : HideOnCloseForm
     private readonly Label _playlistsMessage;
     private readonly Label _listTitle;
     private readonly Label _listDetails;
-    private readonly Button _playAll;
+    private readonly Button _action;
     private readonly DarkList _tracks;
     private readonly Label _tracksMessage;
     private readonly Panel _searchBox;
@@ -91,7 +91,7 @@ internal sealed class MainWindow : HideOnCloseForm
             AutoEllipsis = true,
             UseMnemonic = false,
         };
-        _playAll = new Button
+        _action = new Button
         {
             Text = "Play",
             FlatStyle = FlatStyle.Flat,
@@ -101,14 +101,7 @@ internal sealed class MainWindow : HideOnCloseForm
             Visible = false,
             TabStop = false,
         };
-        _playAll.FlatAppearance.BorderSize = 0;
-        _playAll.Click += (_, _) =>
-        {
-            if (_selected is not null)
-            {
-                PlayRequested?.Invoke(_selected.Uri, null);
-            }
-        };
+        _action.FlatAppearance.BorderSize = 0;
 
         _tracks = new DarkList
         {
@@ -136,7 +129,21 @@ internal sealed class MainWindow : HideOnCloseForm
             BackColor = Theme.Raised,
             ForeColor = Theme.Text,
             PlaceholderText = "Search songs  (Ctrl+F)",
-            Dock = DockStyle.Fill,
+
+            // A single-line box is otherwise only as tall as the font, which clips descenders.
+            AutoSize = false,
+        };
+        _search.TextChanged += (_, _) => UpdateAction();
+        _action.Click += (_, _) =>
+        {
+            if (_search.TextLength > 0)
+            {
+                StartSearch();
+            }
+            else if (_selected is not null)
+            {
+                PlayRequested?.Invoke(_selected.Uri, null);
+            }
         };
         _search.KeyDown += (_, e) =>
         {
@@ -161,7 +168,7 @@ internal sealed class MainWindow : HideOnCloseForm
 
         Controls.AddRange([
             _sidebarTitle, _reload, _playlists, _playlistsMessage,
-            _listTitle, _listDetails, _searchBox, _playAll, _tracks, _tracksMessage, Player,
+            _listTitle, _listDetails, _searchBox, _action, _tracks, _tracksMessage, Player,
         ]);
     }
 
@@ -293,10 +300,10 @@ internal sealed class MainWindow : HideOnCloseForm
 
         _selected = playlist;
         _query = null;
+        _search.Clear();
+        UpdateAction();
         _listTitle.Text = playlist.Name;
         _listDetails.Text = DescribeSelection(playlist, playlist.TrackCount);
-        _playAll.Visible = true;
-        PerformLayout();
 
         if (_trackCache.TryGetValue(playlist.Id, out var cached))
         {
@@ -320,12 +327,19 @@ internal sealed class MainWindow : HideOnCloseForm
         _query = query;
         _selected = null;
         _playlists.ClearSelected();
-        _playAll.Visible = false;
-        PerformLayout(); // The search box moves into the Play button's place and back.
+        UpdateAction();
         _listTitle.Text = $"“{query}”";
         _listDetails.Text = "";
         ShowTracksText("Searching…");
         SearchRequested?.Invoke(query);
+    }
+
+    /// <summary>The button searches while there is text to search for, and plays the playlist otherwise.</summary>
+    private void UpdateAction()
+    {
+        var searching = _search.TextLength > 0;
+        _action.Text = searching ? "Search" : "Play";
+        _action.Visible = searching || _selected is not null;
     }
 
     private static string DescribeSelection(PlaylistSummary playlist, int? trackCount) =>
@@ -369,12 +383,13 @@ internal sealed class MainWindow : HideOnCloseForm
 
         var left = sidebar + P(1);
         var buttonWidth = P(96);
-        _playAll.Bounds = new Rectangle(width - P(16) - buttonWidth, P(20), buttonWidth, P(36));
-        var searchRight = _playAll.Visible ? _playAll.Left - P(16) : width - P(16);
+        _action.Bounds = new Rectangle(width - P(16) - buttonWidth, P(18), buttonWidth, P(40));
+        var searchRight = _action.Left - P(12);
         var searchWidth = Math.Min(P(SearchWidth), Math.Max(0, searchRight - left) / 2);
-        _searchBox.Bounds = new Rectangle(searchRight - searchWidth, P(20), searchWidth, P(36));
-        var inset = Math.Max(0, (_searchBox.Height - _search.Height) / 2);
-        _searchBox.Padding = new Padding(P(10), inset, P(10), 0);
+        _searchBox.Bounds = new Rectangle(searchRight - searchWidth, P(18), searchWidth, P(40));
+        var textHeight = _search.Font.Height + P(6);
+        _search.Bounds = new Rectangle(
+            P(10), (_searchBox.Height - textHeight) / 2 + P(3), Math.Max(0, searchWidth - P(20)), textHeight);
         var textWidth = Math.Max(0, _searchBox.Left - P(16) - (left + P(16)));
         _listTitle.Bounds = new Rectangle(left + P(16), P(6), textWidth, P(38));
         _listDetails.Bounds = new Rectangle(left + P(18), P(46), textWidth, P(22));
