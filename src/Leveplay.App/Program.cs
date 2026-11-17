@@ -13,6 +13,10 @@ internal static class Program
         }
 
         ApplicationConfiguration.Initialize();
+
+        // Log instead of showing the "Continue / Quit" dialog, which a failing timer
+        // would reopen on every tick.
+        Application.ThreadException += (_, e) => AppLog.Write($"unhandled: {e.Exception}");
         SynchronizationContext.SetSynchronizationContext(new WindowsFormsSynchronizationContext());
         Application.Run(new Shell());
     }

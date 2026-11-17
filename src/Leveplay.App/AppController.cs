@@ -320,12 +320,14 @@ internal sealed class AppController : IDisposable
         {
             Publish(await _player.GetPlaybackAsync(_shutdown.Token));
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException) when (_shutdown.IsCancellationRequested)
         {
             // App is exiting.
         }
-        catch (Exception ex) when (ex is APIException or HttpRequestException)
+        catch (Exception ex)
         {
+            // Anything else too (e.g. a reply the library cannot parse): a poll must
+            // never take the app down.
             AppLog.Write($"poll failed: {ex.Message}");
             _pollTimer.Interval = IdlePollMilliseconds;
         }
