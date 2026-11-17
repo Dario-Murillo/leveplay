@@ -16,7 +16,12 @@ public sealed record SpotifySession(ISpotifyClient Client, IAPIConnector Api);
 /// Signs in with the Authorization Code + PKCE flow. The first run opens the browser;
 /// later runs reuse the stored refresh token and need no interaction.
 /// </summary>
-public sealed class SpotifyAuthService(AppSettings settings, ITokenStore tokenStore, Action<Uri> openBrowser)
+/// <param name="refresh">Replaces the token refresh call in tests.</param>
+public sealed class SpotifyAuthService(
+    AppSettings settings,
+    ITokenStore tokenStore,
+    Action<Uri> openBrowser,
+    Func<PKCETokenRefreshRequest, CancellationToken, Task<PKCETokenResponse>>? refresh = null)
 {
     private static readonly string[] RequiredScopes =
     [
@@ -55,8 +60,8 @@ public sealed class SpotifyAuthService(AppSettings settings, ITokenStore tokenSt
 
         try
         {
-            var token = await new OAuthClient()
-                .RequestToken(new PKCETokenRefreshRequest(settings.ClientId, refreshToken), ct)
+            var request = new PKCETokenRefreshRequest(settings.ClientId, refreshToken);
+            var token = await (refresh?.Invoke(request, ct) ?? new OAuthClient().RequestToken(request, ct))
                 .ConfigureAwait(false);
 
             // Keep the rotated token even if we are about to ask for consent again, so

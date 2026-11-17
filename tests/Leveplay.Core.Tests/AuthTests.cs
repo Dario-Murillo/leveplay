@@ -1,5 +1,8 @@
+using System.Net;
 using Leveplay.Core.Auth;
 using Leveplay.Core.Config;
+using SpotifyAPI.Web;
+using SpotifyAPI.Web.Http;
 
 namespace Leveplay.Core.Tests;
 
@@ -33,6 +36,71 @@ public sealed class AuthCallbackTests
     public void Rejects_response_without_code()
     {
         Assert.Throws<AuthException>(() => AuthCallback.ExtractCode(Callback("?state=s1"), "s1"));
+    }
+}
+
+public sealed class SpotifyAuthServiceTests
+{
+    private sealed class MemoryTokenStore : ITokenStore
+    {
+        public string? Token { get; set; } = "saved-token";
+
+        public string? Load() => Token;
+
+        public void Save(string refreshToken) => Token = refreshToken;
+
+        public void Clear() => Token = null;
+    }
+
+    private sealed record Response(HttpStatusCode StatusCode) : IResponse
+    {
+        public object? Body => null;
+
+        public IReadOnlyDictionary<string, string> Headers { get; } = new Dictionary<string, string>();
+
+        public string? ContentType => null;
+    }
+
+    private static SpotifyAuthService Service(MemoryTokenStore store, Exception refreshFailure, Action<Uri> openBrowser) =>
+        new(new AppSettings { ClientId = "client", RedirectPort = 5597 }, store, openBrowser,
+            (_, _) => Task.FromException<PKCETokenResponse>(refreshFailure));
+
+    [Fact]
+    public async Task A_network_error_keeps_the_saved_token()
+    {
+        var store = new MemoryTokenStore();
+        var auth = Service(store, new HttpRequestException("offline"), _ => Assert.Fail("opened the browser"));
+
+        await Assert.ThrowsAsync<HttpRequestException>(() => auth.SignInAsync());
+
+        Assert.Equal("saved-token", store.Token);
+    }
+
+    [Fact]
+    public async Task A_server_error_keeps_the_saved_token()
+    {
+        var store = new MemoryTokenStore();
+        var failure = new APIException(new Response(HttpStatusCode.ServiceUnavailable));
+        var auth = Service(store, failure, _ => Assert.Fail("opened the browser"));
+
+        await Assert.ThrowsAsync<APIException>(() => auth.SignInAsync());
+
+        Assert.Equal("saved-token", store.Token);
+    }
+
+    [Fact]
+    public async Task A_rejected_token_is_deleted_and_the_browser_flow_starts()
+    {
+        var store = new MemoryTokenStore();
+        using var cts = new CancellationTokenSource();
+        var failure = new APIException(new Response(HttpStatusCode.BadRequest));
+
+        // Cancelling as soon as the browser would open ends the flow without a real login.
+        var auth = Service(store, failure, _ => cts.Cancel());
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => auth.SignInAsync(cts.Token));
+
+        Assert.Null(store.Token);
     }
 }
 
