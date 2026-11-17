@@ -175,6 +175,7 @@ internal sealed class MainWindow : Form
         var index = playlists.ToList().FindIndex(p => p.Id == previous);
         if (index >= 0)
         {
+            _selected = null; // Otherwise SelectPlaylist skips it and the old tracks stay.
             _playlists.SelectedIndex = index;
         }
     }
