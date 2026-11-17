@@ -64,6 +64,8 @@ Windows user) under `%APPDATA%\Leveplay`; later starts need no interaction.
   window: your playlists on the left, the tracks of the selected one on the right and
   the now-playing strip at the bottom. Double click a track to play the playlist from
   there, or use Play for the whole playlist.
+- **Search** with the box at the top of the main window (Ctrl+F, then Enter). It shows
+  Spotify's top 10 songs; double click one to play it, followed by the rest of its album.
 - **Left click** the tray icon to show or hide the mini player: just the now-playing
   strip, in the corner next to the tray.
 - **Right click** for the menu: Play/Pause, Next, Previous, and a `Devices` submenu

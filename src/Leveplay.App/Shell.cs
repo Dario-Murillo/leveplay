@@ -80,6 +80,18 @@ internal sealed class Shell : ApplicationContext
                 }
             };
             window.TracksRequested += async playlist => await ShowTracksAsync(window, playlist);
+            window.SearchRequested += async query =>
+            {
+                var result = await _app.SearchAsync(query);
+                if (result.Value is { } tracks)
+                {
+                    window.ShowSearchResults(query, tracks);
+                }
+                else if (result.Error is { } error)
+                {
+                    window.ShowSearchMessage(query, error);
+                }
+            };
         }
 
         _mainWindow.Open();

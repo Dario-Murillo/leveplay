@@ -4,14 +4,15 @@ using Leveplay.Core.Library;
 namespace Leveplay.App.Player;
 
 /// <summary>
-/// The full player window: playlists on the left, the tracks of the selected one on the
-/// right, and the now-playing strip along the bottom. Like the mini player it holds no
+/// The full player window: playlists on the left, the tracks of the selected one (or the
+/// results of a search) on the right, and the now-playing strip along the bottom. Like the mini player it holds no
 /// logic; it asks for data, shows it and reports what the user picked.
 /// </summary>
 internal sealed class MainWindow : HideOnCloseForm
 {
     private const int SidebarWidth = 290;
     private const int HeaderHeight = 76;
+    private const int SearchWidth = 260;
 
     private readonly Label _sidebarTitle;
     private readonly Button _reload;
@@ -22,9 +23,14 @@ internal sealed class MainWindow : HideOnCloseForm
     private readonly Button _playAll;
     private readonly DarkList _tracks;
     private readonly Label _tracksMessage;
+    private readonly Panel _searchBox;
+    private readonly TextBox _search;
     private readonly Dictionary<string, IReadOnlyList<TrackSummary>> _trackCache = [];
 
     private PlaylistSummary? _selected;
+
+    /// <summary>The search on show, or null while a playlist is shown.</summary>
+    private string? _query;
     private bool _playlistsLoaded;
 
     /// <summary>The now-playing strip; the app wires its events and feeds it state.</summary>
@@ -38,6 +44,9 @@ internal sealed class MainWindow : HideOnCloseForm
 
     /// <summary>Raised with a context URI and, optionally, the track to start from.</summary>
     public event Action<string, string?>? PlayRequested;
+
+    /// <summary>Raised with the text to search for when the user presses Enter.</summary>
+    public event Action<string>? SearchRequested;
 
     public MainWindow(Icon icon)
     {
@@ -112,19 +121,47 @@ internal sealed class MainWindow : HideOnCloseForm
         };
         _tracks.ItemActivated += item =>
         {
-            if (_selected is not null && item is TrackSummary { IsLocal: false } track)
+            // A search result has no playlist, so it plays within its album.
+            if (item is TrackSummary { IsLocal: false } track && (_selected?.Uri ?? track.AlbumUri) is { } context)
             {
-                PlayRequested?.Invoke(_selected.Uri, track.Uri);
+                PlayRequested?.Invoke(context, track.Uri);
             }
         };
         _tracksMessage = MessageLabel();
         _tracksMessage.Text = "Select a playlist to see its tracks.";
 
+        _search = new TextBox
+        {
+            BorderStyle = BorderStyle.None,
+            BackColor = Theme.Raised,
+            ForeColor = Theme.Text,
+            PlaceholderText = "Search songs  (Ctrl+F)",
+            Dock = DockStyle.Fill,
+        };
+        _search.KeyDown += (_, e) =>
+        {
+            if (e.KeyCode is Keys.Enter or Keys.Escape)
+            {
+                e.Handled = e.SuppressKeyPress = true; // No beep.
+                if (e.KeyCode == Keys.Enter)
+                {
+                    StartSearch();
+                }
+                else
+                {
+                    _search.Clear();
+                }
+            }
+        };
+        _searchBox = new Panel { BackColor = Theme.Raised };
+        _searchBox.Controls.Add(_search);
+        _searchBox.Click += (_, _) => _search.Focus();
+
         Player = new PlayerPanel { Dock = DockStyle.Bottom };
 
         Controls.AddRange([
             _sidebarTitle, _reload, _playlists, _playlistsMessage,
-            _listTitle, _listDetails, _playAll, _tracks, _tracksMessage, Player,
+            _listTitle, _listDetails, _searchBox, _playAll, _tracks, _tracksMessage, Player,
         ]);
     }
 
@@ -200,6 +237,35 @@ internal sealed class MainWindow : HideOnCloseForm
         _listDetails.Text = DescribeSelection(playlist, tracks.Count);
     }
 
+    /// <summary>Shows the results of a search, unless the user has moved on since.</summary>
+    public void ShowSearchResults(string query, IReadOnlyList<TrackSummary> tracks)
+    {
+        if (query != _query)
+        {
+            return;
+        }
+
+        if (tracks.Count == 0)
+        {
+            ShowSearchMessage(query, "No songs found.");
+            return;
+        }
+
+        _tracks.SetItems(tracks);
+        _tracksMessage.Visible = false;
+        _tracks.Visible = true;
+        _listDetails.Text = tracks.Count == 1 ? "1 song" : $"Top {tracks.Count} songs";
+    }
+
+    public void ShowSearchMessage(string query, string message)
+    {
+        if (query == _query)
+        {
+            _listDetails.Text = "";
+            ShowTracksText(message);
+        }
+    }
+
     /// <summary>Shows a message instead of the tracks, e.g. when Spotify will not list them.</summary>
     public void ShowTracksMessage(PlaylistSummary playlist, string message)
     {
@@ -226,9 +292,11 @@ internal sealed class MainWindow : HideOnCloseForm
         }
 
         _selected = playlist;
+        _query = null;
         _listTitle.Text = playlist.Name;
         _listDetails.Text = DescribeSelection(playlist, playlist.TrackCount);
         _playAll.Visible = true;
+        PerformLayout();
 
         if (_trackCache.TryGetValue(playlist.Id, out var cached))
         {
@@ -238,6 +306,26 @@ internal sealed class MainWindow : HideOnCloseForm
 
         ShowTracksText("Loading tracks…");
         TracksRequested?.Invoke(playlist);
+    }
+
+    private void StartSearch()
+    {
+        var query = _search.Text.Trim();
+        if (query.Length == 0)
+        {
+            return;
+        }
+
+        // Leave the playlist, so clicking it again brings its tracks back.
+        _query = query;
+        _selected = null;
+        _playlists.ClearSelected();
+        _playAll.Visible = false;
+        PerformLayout(); // The search box moves into the Play button's place and back.
+        _listTitle.Text = $"“{query}”";
+        _listDetails.Text = "";
+        ShowTracksText("Searching…");
+        SearchRequested?.Invoke(query);
     }
 
     private static string DescribeSelection(PlaylistSummary playlist, int? trackCount) =>
@@ -282,7 +370,12 @@ internal sealed class MainWindow : HideOnCloseForm
         var left = sidebar + P(1);
         var buttonWidth = P(96);
         _playAll.Bounds = new Rectangle(width - P(16) - buttonWidth, P(20), buttonWidth, P(36));
-        var textWidth = Math.Max(0, _playAll.Left - P(16) - (left + P(16)));
+        var searchRight = _playAll.Visible ? _playAll.Left - P(16) : width - P(16);
+        var searchWidth = Math.Min(P(SearchWidth), Math.Max(0, searchRight - left) / 2);
+        _searchBox.Bounds = new Rectangle(searchRight - searchWidth, P(20), searchWidth, P(36));
+        var inset = Math.Max(0, (_searchBox.Height - _search.Height) / 2);
+        _searchBox.Padding = new Padding(P(10), inset, P(10), 0);
+        var textWidth = Math.Max(0, _searchBox.Left - P(16) - (left + P(16)));
         _listTitle.Bounds = new Rectangle(left + P(16), P(6), textWidth, P(38));
         _listDetails.Bounds = new Rectangle(left + P(18), P(46), textWidth, P(22));
         var trackArea = new Rectangle(left, header, Math.Max(0, width - left), Math.Max(0, height - header));
@@ -298,6 +391,21 @@ internal sealed class MainWindow : HideOnCloseForm
 
     protected override void OnKeyDown(KeyEventArgs e)
     {
+        if (e.KeyCode == Keys.F && e.Control)
+        {
+            _search.Focus();
+            _search.SelectAll();
+            e.Handled = e.SuppressKeyPress = true;
+            return;
+        }
+
+        // While typing, Space and Ctrl+arrows belong to the search box.
+        if (_search.Focused)
+        {
+            base.OnKeyDown(e);
+            return;
+        }
+
         // Space belongs to the lists while one has focus, so only handle the modified keys there.
         var listFocused = _playlists.Focused || _tracks.Focused;
         if ((e.KeyCode != Keys.Space || !listFocused) && Player.HandleShortcut(e))
