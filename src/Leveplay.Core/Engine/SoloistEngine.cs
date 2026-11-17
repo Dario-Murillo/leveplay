@@ -9,7 +9,10 @@ public enum EngineStart
     /// <summary>Leveplay launched the engine and will stop it on exit.</summary>
     Started,
 
-    /// <summary>An engine was already running (started by the user); it is left alone.</summary>
+    /// <summary>
+    /// An engine from another location was already running (started by the user); it is
+    /// left alone. A leftover of Leveplay's own engine is replaced instead.
+    /// </summary>
     AlreadyRunning,
 }
 
@@ -48,7 +51,26 @@ public sealed partial class SoloistEngine(string executablePath, string deviceNa
         }
 
         // Two engines with the same device name would fight over the Connect session.
-        if (Process.GetProcessesByName(Path.GetFileNameWithoutExtension(executablePath)).Length > 0)
+        var foreign = false;
+        foreach (var other in Process.GetProcessesByName(Path.GetFileNameWithoutExtension(executablePath)))
+        {
+            using (other)
+            {
+                // Our own executable still running means a previous Leveplay crashed or
+                // was killed and left it behind: replace it, so Exit stops the music again.
+                if (IsOurExecutable(other))
+                {
+                    log?.Invoke($"engine: stopping leftover pid {other.Id} from a previous run");
+                    Kill(other);
+                }
+                else
+                {
+                    foreign = true;
+                }
+            }
+        }
+
+        if (foreign)
         {
             log?.Invoke("engine: already running, not starting another one");
             return EngineStart.AlreadyRunning;
@@ -101,22 +123,46 @@ public sealed partial class SoloistEngine(string executablePath, string deviceNa
         }
 
         _stopping = true;
+        if (Kill(process))
+        {
+            log?.Invoke("engine: stopped");
+        }
+
+        process.Dispose();
+    }
+
+    private bool IsOurExecutable(Process process)
+    {
         try
         {
-            if (!process.HasExited)
+            return string.Equals(
+                Path.GetFullPath(process.MainModule?.FileName ?? ""),
+                Path.GetFullPath(executablePath),
+                StringComparison.OrdinalIgnoreCase);
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or Win32Exception or ArgumentException)
+        {
+            return false; // Gone, or not ours to inspect: leave it alone.
+        }
+    }
+
+    /// <summary>Returns true when the process was alive and has been told to stop.</summary>
+    private static bool Kill(Process process)
+    {
+        try
+        {
+            if (process.HasExited)
             {
-                process.Kill(entireProcessTree: true);
-                process.WaitForExit(2000);
-                log?.Invoke("engine: stopped");
+                return false;
             }
+
+            process.Kill(entireProcessTree: true);
+            process.WaitForExit(2000);
+            return true;
         }
         catch (Exception ex) when (ex is InvalidOperationException or Win32Exception)
         {
-            // Already gone.
-        }
-        finally
-        {
-            process.Dispose();
+            return false; // Already gone.
         }
     }
 
