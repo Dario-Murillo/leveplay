@@ -4,11 +4,9 @@ namespace Leveplay.App.Player;
 /// Small fixed-size window that shows only the now-playing strip, next to the tray.
 /// Closing it only hides it; the tray icon keeps the app alive.
 /// </summary>
-internal sealed class MiniPlayerForm : Form
+internal sealed class MiniPlayerForm : HideOnCloseForm
 {
     private const int DesignWidth = 440;
-
-    private bool _allowClose;
 
     /// <summary>The strip this window hosts; the app wires its events and feeds it state.</summary>
     public PlayerPanel Player { get; }
@@ -35,13 +33,6 @@ internal sealed class MiniPlayerForm : Form
         base.OnHandleCreated(e);
         ClientSize = new Size(this.Px(DesignWidth), this.Px(PlayerPanel.DesignHeight));
         Theme.UseDarkTitleBar(this);
-    }
-
-    /// <summary>Lets the window really close when the app is exiting.</summary>
-    public void CloseForExit()
-    {
-        _allowClose = true;
-        Close();
     }
 
     /// <summary>Shows the window in the corner next to the tray, or hides it if visible.</summary>
@@ -73,17 +64,5 @@ internal sealed class MiniPlayerForm : Form
         {
             base.OnKeyDown(e);
         }
-    }
-
-    protected override void OnFormClosing(FormClosingEventArgs e)
-    {
-        if (!_allowClose && e.CloseReason == CloseReason.UserClosing)
-        {
-            e.Cancel = true;
-            Hide();
-            return;
-        }
-
-        base.OnFormClosing(e);
     }
 }
