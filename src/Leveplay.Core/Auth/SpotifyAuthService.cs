@@ -16,8 +16,16 @@ public sealed record SpotifySession(ISpotifyClient Client, IAPIConnector Api);
 /// Signs in with the Authorization Code + PKCE flow. The first run opens the browser;
 /// later runs reuse the stored refresh token and need no interaction.
 /// </summary>
-public sealed class SpotifyAuthService(AppSettings settings, ITokenStore tokenStore, Action<Uri> openBrowser)
+/// <param name="refresh">Replaces the token refresh call in tests.</param>
+public sealed class SpotifyAuthService(
+    AppSettings settings,
+    ITokenStore tokenStore,
+    Action<Uri> openBrowser,
+    Func<PKCETokenRefreshRequest, CancellationToken, Task<PKCETokenResponse>>? refresh = null)
 {
+    /// <summary>How long to wait for the user to finish the browser flow.</summary>
+    private static readonly TimeSpan InteractiveTimeout = TimeSpan.FromMinutes(3);
+
     private static readonly string[] RequiredScopes =
     [
         Scopes.UserReadPlaybackState,
@@ -26,9 +34,6 @@ public sealed class SpotifyAuthService(AppSettings settings, ITokenStore tokenSt
         Scopes.PlaylistReadPrivate,
         Scopes.PlaylistReadCollaborative,
     ];
-
-    /// <summary>How long to wait for the user to finish the browser flow.</summary>
-    public TimeSpan InteractiveTimeout { get; init; } = TimeSpan.FromMinutes(3);
 
     public async Task<SpotifySession> SignInAsync(CancellationToken ct = default)
     {
@@ -55,8 +60,8 @@ public sealed class SpotifyAuthService(AppSettings settings, ITokenStore tokenSt
 
         try
         {
-            var token = await new OAuthClient()
-                .RequestToken(new PKCETokenRefreshRequest(settings.ClientId, refreshToken), ct)
+            var request = new PKCETokenRefreshRequest(settings.ClientId, refreshToken);
+            var token = await (refresh?.Invoke(request, ct) ?? new OAuthClient().RequestToken(request, ct))
                 .ConfigureAwait(false);
 
             // Keep the rotated token even if we are about to ask for consent again, so
@@ -67,11 +72,11 @@ public sealed class SpotifyAuthService(AppSettings settings, ITokenStore tokenSt
             // only way to get them is a new consent screen.
             return HasRequiredScopes(token.Scope) ? token : null;
         }
-        catch (APIException)
+        catch (APIException ex) when (ex.Response?.StatusCode == System.Net.HttpStatusCode.BadRequest)
         {
-            // Revoked or expired refresh token: fall back to the browser flow.
-            // Network failures are not APIException and deliberately propagate,
-            // so being offline never throws away a valid token.
+            // 400 is Spotify's answer for a revoked or expired refresh token: fall back
+            // to the browser flow. Everything else (network failures, 5xx, 429)
+            // deliberately propagates, so an outage never throws away a valid token.
             tokenStore.Clear();
             return null;
         }

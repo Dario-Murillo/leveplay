@@ -40,7 +40,7 @@ public sealed class PlaybackController(IPlayerGateway player, Action<string>? lo
 
         var devices = await player.GetDevicesAsync(ct).ConfigureAwait(false);
         var device = DeviceConnector.FindByName(devices, deviceName);
-        if (device is null || device.IsRestricted || string.IsNullOrEmpty(device.Id))
+        if (device is null || !device.IsControllable)
         {
             log?.Invoke($"play: nothing loaded and \"{deviceName}\" is not available");
             return PlayPauseOutcome.NoDevice;
@@ -75,7 +75,7 @@ public sealed class PlaybackController(IPlayerGateway player, Action<string>? lo
 
         var devices = await player.GetDevicesAsync(ct).ConfigureAwait(false);
         var device = DeviceConnector.FindByName(devices, deviceName);
-        if (device is null || device.IsRestricted || string.IsNullOrEmpty(device.Id))
+        if (device is null || !device.IsControllable)
         {
             log?.Invoke($"play {contextUri}: no active device and \"{deviceName}\" is not available");
             return false;

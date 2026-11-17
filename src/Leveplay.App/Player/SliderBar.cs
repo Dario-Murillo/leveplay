@@ -24,12 +24,6 @@ internal sealed class SliderBar : Control
         TabStop = false;
     }
 
-    [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
-    public Color TrackColor { get; set; } = Color.FromArgb(52, 52, 61);
-
-    [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
-    public Color FillColor { get; set; } = Color.FromArgb(124, 92, 255);
-
     /// <summary>True while the user holds the thumb; updates from outside are ignored then.</summary>
     public bool IsDragging => _dragging;
 
@@ -68,8 +62,8 @@ internal sealed class SliderBar : Control
         float width = Math.Max(1f, Width - thumb);
         float top = (Height - thickness) / 2f;
 
-        using var track = new SolidBrush(Enabled ? TrackColor : Color.FromArgb(40, 40, 46));
-        using var fill = new SolidBrush(Enabled ? FillColor : Color.FromArgb(80, 80, 90));
+        using var track = new SolidBrush(Enabled ? Color.FromArgb(52, 52, 61) : Color.FromArgb(40, 40, 46));
+        using var fill = new SolidBrush(Enabled ? Theme.Accent : Color.FromArgb(80, 80, 90));
         FillRounded(g, track, left, top, width, thickness);
 
         float filled = (float)(width * _value);

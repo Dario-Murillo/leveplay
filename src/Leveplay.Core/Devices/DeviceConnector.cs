@@ -29,19 +29,23 @@ public sealed record ConnectResult(
 /// <param name="log">Optional sink for diagnostic messages.</param>
 public sealed class DeviceConnector(IPlayerGateway player, Action<string>? log = null)
 {
-    public async Task<ConnectResult> ConnectAsync(string deviceName, CancellationToken ct = default)
+    /// <param name="deviceId">When given, picks that exact device instead of matching by name.</param>
+    public async Task<ConnectResult> ConnectAsync(
+        string deviceName, string? deviceId = null, CancellationToken ct = default)
     {
         var devices = await player.GetDevicesAsync(ct).ConfigureAwait(false);
         var names = devices.Select(d => d.Name).ToList();
         log?.Invoke($"connect \"{deviceName}\": online = [{string.Join(", ", devices.Select(Describe))}]");
 
-        var device = FindByName(devices, deviceName);
+        var device = deviceId is null
+            ? FindByName(devices, deviceName)
+            : devices.FirstOrDefault(d => d.Id == deviceId);
         if (device is null)
         {
             return new ConnectResult(ConnectStatus.NotFound, null, names);
         }
 
-        if (device.IsRestricted || string.IsNullOrEmpty(device.Id))
+        if (!device.IsControllable)
         {
             return new ConnectResult(ConnectStatus.Restricted, device, names);
         }
@@ -72,7 +76,7 @@ public sealed class DeviceConnector(IPlayerGateway player, Action<string>? log =
         var wanted = deviceName.Trim();
         return devices
             .Where(d => string.Equals(d.Name.Trim(), wanted, StringComparison.OrdinalIgnoreCase))
-            .OrderBy(d => d.IsRestricted || string.IsNullOrEmpty(d.Id))
+            .OrderBy(d => !d.IsControllable)
             .FirstOrDefault();
     }
 }

@@ -62,7 +62,7 @@ internal sealed class AppController : IDisposable
     private IPlayerGateway? _player;
     private DeviceConnector? _connector;
     private PlaybackController? _playback;
-    private ILibraryGateway? _library;
+    private SpotifyLibraryGateway? _library;
     private SoloistEngine? _engine;
     private bool _engineJustStarted;
     private bool _engineAdopted;
@@ -169,7 +169,13 @@ internal sealed class AppController : IDisposable
             return;
         }
 
-        _auth.SignOut();
+        // Not signed in means the silent sign-in failed (e.g. offline at start): retry it
+        // with the saved token instead of throwing the token away.
+        if (IsSignedIn)
+        {
+            _auth.SignOut();
+        }
+
         _pollTimer.Stop();
         _player = null;
         _connector = null;
@@ -182,7 +188,8 @@ internal sealed class AppController : IDisposable
     }
 
     /// <summary>Connects to the given device, or to the configured one when none is given.</summary>
-    public Task<bool> ConnectAsync(string? deviceName = null) => RunAsync("looking for device…", async ct =>
+    /// <param name="deviceId">Picks one exact device; names are not unique.</param>
+    public Task<bool> ConnectAsync(string? deviceName = null, string? deviceId = null) => RunAsync("looking for device…", async ct =>
     {
         if (_connector is null || Settings is null)
         {
@@ -190,7 +197,7 @@ internal sealed class AppController : IDisposable
         }
 
         var name = deviceName ?? Settings.DeviceName;
-        var result = await _connector.ConnectAsync(name, ct);
+        var result = await _connector.ConnectAsync(name, deviceId, ct);
 
         // A freshly started engine needs a few seconds to register with Spotify.
         var waitingForEngine = _engineJustStarted && deviceName is null;
@@ -202,7 +209,7 @@ internal sealed class AppController : IDisposable
         {
             SetStatus("starting audio engine…");
             await Task.Delay(1000, ct);
-            result = await _connector.ConnectAsync(name, ct);
+            result = await _connector.ConnectAsync(name, deviceId, ct);
         }
 
         AppLog.Write($"connect \"{name}\": {result.Status}");
@@ -314,12 +321,14 @@ internal sealed class AppController : IDisposable
         {
             Publish(await _player.GetPlaybackAsync(_shutdown.Token));
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException) when (_shutdown.IsCancellationRequested)
         {
             // App is exiting.
         }
-        catch (Exception ex) when (ex is APIException or HttpRequestException)
+        catch (Exception ex)
         {
+            // Anything else too (e.g. a reply the library cannot parse): a poll must
+            // never take the app down.
             AppLog.Write($"poll failed: {ex.Message}");
             _pollTimer.Interval = IdlePollMilliseconds;
         }
@@ -493,7 +502,7 @@ internal sealed class AppController : IDisposable
 
             return LoadResult<IReadOnlyList<T>>.Ok(items);
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException) when (_shutdown.IsCancellationRequested)
         {
             return LoadResult<IReadOnlyList<T>>.Cancelled;
         }
@@ -507,8 +516,9 @@ internal sealed class AppController : IDisposable
             AppLog.Write($"loading {what} failed: {ex.Message}");
             return LoadResult<IReadOnlyList<T>>.Fail(describe(ex));
         }
-        catch (HttpRequestException ex)
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
         {
+            // A request timeout surfaces as TaskCanceledException.
             AppLog.Write($"loading {what} failed: {ex.Message}");
             return LoadResult<IReadOnlyList<T>>.Fail("Could not reach Spotify.");
         }

@@ -110,6 +110,17 @@ public sealed class DeviceConnectorTests
     }
 
     [Fact]
+    public async Task A_device_id_picks_between_devices_with_the_same_name()
+    {
+        var player = new FakePlayer(Device("Web Player", "tab-1"), Device("Web Player", "tab-2"));
+
+        var result = await new DeviceConnector(player).ConnectAsync("Web Player", "tab-2");
+
+        Assert.Equal(ConnectStatus.Transferred, result.Status);
+        Assert.Equal(["tab-2"], player.Transfers);
+    }
+
+    [Fact]
     public void A_controllable_device_wins_over_a_restricted_one_with_the_same_name()
     {
         var devices = new[] { Device("Leveplay", "a", restricted: true), Device("Leveplay", "b") };

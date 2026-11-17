@@ -8,7 +8,7 @@ namespace Leveplay.App.Player;
 /// right, and the now-playing strip along the bottom. Like the mini player it holds no
 /// logic; it asks for data, shows it and reports what the user picked.
 /// </summary>
-internal sealed class MainWindow : Form
+internal sealed class MainWindow : HideOnCloseForm
 {
     private const int SidebarWidth = 290;
     private const int HeaderHeight = 76;
@@ -26,7 +26,6 @@ internal sealed class MainWindow : Form
 
     private PlaylistSummary? _selected;
     private bool _playlistsLoaded;
-    private bool _allowClose;
 
     /// <summary>The now-playing strip; the app wires its events and feeds it state.</summary>
     public PlayerPanel Player { get; }
@@ -155,13 +154,6 @@ internal sealed class MainWindow : Form
         }
     }
 
-    /// <summary>Lets the window really close when the app is exiting.</summary>
-    public void CloseForExit()
-    {
-        _allowClose = true;
-        Close();
-    }
-
     public void ShowPlaylists(IReadOnlyList<PlaylistSummary> playlists)
     {
         _playlistsLoaded = true;
@@ -175,6 +167,7 @@ internal sealed class MainWindow : Form
         var index = playlists.ToList().FindIndex(p => p.Id == previous);
         if (index >= 0)
         {
+            _selected = null; // Otherwise SelectPlaylist skips it and the old tracks stay.
             _playlists.SelectedIndex = index;
         }
     }
@@ -313,17 +306,5 @@ internal sealed class MainWindow : Form
         }
 
         base.OnKeyDown(e);
-    }
-
-    protected override void OnFormClosing(FormClosingEventArgs e)
-    {
-        if (!_allowClose && e.CloseReason == CloseReason.UserClosing)
-        {
-            e.Cancel = true;
-            Hide();
-            return;
-        }
-
-        base.OnFormClosing(e);
     }
 }
