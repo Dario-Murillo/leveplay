@@ -41,7 +41,7 @@ public sealed class DeviceConnector(IPlayerGateway player, Action<string>? log =
             return new ConnectResult(ConnectStatus.NotFound, null, names);
         }
 
-        if (device.IsRestricted || string.IsNullOrEmpty(device.Id))
+        if (!device.IsControllable)
         {
             return new ConnectResult(ConnectStatus.Restricted, device, names);
         }
@@ -72,7 +72,7 @@ public sealed class DeviceConnector(IPlayerGateway player, Action<string>? log =
         var wanted = deviceName.Trim();
         return devices
             .Where(d => string.Equals(d.Name.Trim(), wanted, StringComparison.OrdinalIgnoreCase))
-            .OrderBy(d => d.IsRestricted || string.IsNullOrEmpty(d.Id))
+            .OrderBy(d => !d.IsControllable)
             .FirstOrDefault();
     }
 }

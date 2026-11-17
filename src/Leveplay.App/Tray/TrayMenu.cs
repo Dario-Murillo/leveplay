@@ -182,7 +182,7 @@ internal sealed class TrayMenu : IDisposable
             items.Add(new ToolStripMenuItem($"{name} ({device.Type})", null, async (_, _) => await _app.ConnectAsync(name))
             {
                 Checked = device.IsActive,
-                Enabled = !device.IsRestricted && !string.IsNullOrEmpty(device.Id),
+                Enabled = device.IsControllable,
             });
         }
 
