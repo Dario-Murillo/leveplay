@@ -67,11 +67,11 @@ public sealed class SpotifyAuthService(AppSettings settings, ITokenStore tokenSt
             // only way to get them is a new consent screen.
             return HasRequiredScopes(token.Scope) ? token : null;
         }
-        catch (APIException)
+        catch (APIException ex) when (ex.Response?.StatusCode == System.Net.HttpStatusCode.BadRequest)
         {
-            // Revoked or expired refresh token: fall back to the browser flow.
-            // Network failures are not APIException and deliberately propagate,
-            // so being offline never throws away a valid token.
+            // 400 is Spotify's answer for a revoked or expired refresh token: fall back
+            // to the browser flow. Everything else (network failures, 5xx, 429)
+            // deliberately propagates, so an outage never throws away a valid token.
             tokenStore.Clear();
             return null;
         }
