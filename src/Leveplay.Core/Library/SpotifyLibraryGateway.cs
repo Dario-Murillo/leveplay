@@ -43,6 +43,22 @@ public sealed class SpotifyLibraryGateway(IAPIConnector api, Action<string>? log
         }
     }
 
+    /// <summary>Most results Spotify returns per search request since February 2026.</summary>
+    public const int SearchLimit = 10;
+
+    /// <summary>Tracks matching <paramref name="query"/>, best match first.</summary>
+    public async Task<IReadOnlyList<TrackSummary>> SearchTracksAsync(string query, CancellationToken ct = default)
+    {
+        var parameters = new Dictionary<string, string>
+        {
+            ["q"] = query,
+            ["type"] = "track",
+            ["limit"] = SearchLimit.ToString(CultureInfo.InvariantCulture),
+        };
+        var result = await api.Get<SearchDto>(new Uri("search", UriKind.Relative), parameters, ct).ConfigureAwait(false);
+        return (result.Tracks?.Items ?? []).Select(t => LibraryMapper.ToSummary(t)).OfType<TrackSummary>().ToList();
+    }
+
     private async Task<List<T?>> GetAllAsync<T>(
         string path, Dictionary<string, string>? extraParameters, CancellationToken ct)
     {

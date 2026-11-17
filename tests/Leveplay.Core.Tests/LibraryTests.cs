@@ -102,6 +102,32 @@ public sealed class LibraryTests
         Assert.Null(LibraryMapper.ToSummary(removed));
         Assert.True(LibraryMapper.ToSummary(local)!.IsLocal);
     }
+
+    [Fact]
+    public void Reads_search_results_with_their_album_as_context()
+    {
+        var dto = JsonConvert.DeserializeObject<SearchDto>("""
+            {
+              "tracks": {
+                "next": null,
+                "items": [
+                  {
+                    "uri": "spotify:track:t1", "name": "Tres Rosas", "duration_ms": 163000,
+                    "artists": [ { "name": "Seven Kayne", "uri": "spotify:artist:a1" } ],
+                    "album": { "name": "Tres Rosas", "uri": "spotify:album:al1" }
+                  },
+                  null
+                ]
+              }
+            }
+            """);
+
+        var tracks = dto!.Tracks!.Items!.Select(t => LibraryMapper.ToSummary(t)).OfType<TrackSummary>().ToList();
+
+        Assert.Equal(
+            [new TrackSummary("spotify:track:t1", "Tres Rosas", "Seven Kayne", "Tres Rosas", 163000, false, "spotify:album:al1")],
+            tracks);
+    }
 }
 
 public sealed class RequiredScopesTests

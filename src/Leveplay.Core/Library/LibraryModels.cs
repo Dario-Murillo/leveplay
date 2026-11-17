@@ -28,8 +28,9 @@ public sealed record PlaylistSummary(string Id, string Uri, string Name, string?
 /// <summary>A track or episode inside a playlist.</summary>
 /// <param name="Artist">Artists of a track, or the show of an episode.</param>
 /// <param name="IsLocal">Local files cannot be started through the Web API.</param>
+/// <param name="AlbumUri">Context to play a search result in, so playback continues after it.</param>
 public sealed record TrackSummary(
-    string Uri, string Name, string? Artist, string? Album, int DurationMs, bool IsLocal);
+    string Uri, string Name, string? Artist, string? Album, int DurationMs, bool IsLocal, string? AlbumUri = null);
 
 /// <summary>
 /// Raised when Spotify refuses to list a playlist's tracks. It only allows that for
