@@ -279,9 +279,10 @@ internal sealed class MainWindow : Form
         var sidebar = Math.Min(P(SidebarWidth), width / 2);
         var header = P(HeaderHeight);
 
-        _sidebarTitle.Bounds = new Rectangle(P(16), P(12), sidebar - P(64), P(32));
-        _reload.Bounds = new Rectangle(sidebar - P(40), P(13), P(32), P(30));
-        var playlistArea = new Rectangle(0, P(52), sidebar, Math.Max(0, height - P(52)));
+        // Both columns share one header height, so the two lists start on the same line.
+        _sidebarTitle.Bounds = new Rectangle(P(16), 0, sidebar - P(64), header);
+        _reload.Bounds = new Rectangle(sidebar - P(40), (header - P(30)) / 2, P(32), P(30));
+        var playlistArea = new Rectangle(0, header, sidebar, Math.Max(0, height - header));
         _playlists.Bounds = playlistArea;
         _playlistsMessage.Bounds = playlistArea;
 
