@@ -169,7 +169,13 @@ internal sealed class AppController : IDisposable
             return;
         }
 
-        _auth.SignOut();
+        // Not signed in means the silent sign-in failed (e.g. offline at start): retry it
+        // with the saved token instead of throwing the token away.
+        if (IsSignedIn)
+        {
+            _auth.SignOut();
+        }
+
         _pollTimer.Stop();
         _player = null;
         _connector = null;
