@@ -1,6 +1,6 @@
 using System.Runtime.InteropServices;
 
-namespace Leveplay.Tray.Player;
+namespace Leveplay.App.Player;
 
 /// <summary>Colours, icon glyphs and small helpers shared by the player windows.</summary>
 internal static class Theme

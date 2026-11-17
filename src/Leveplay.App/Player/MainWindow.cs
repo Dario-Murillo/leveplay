@@ -1,7 +1,7 @@
 using Leveplay.Core.Devices;
 using Leveplay.Core.Library;
 
-namespace Leveplay.Tray.Player;
+namespace Leveplay.App.Player;
 
 /// <summary>
 /// The full player window: playlists on the left, the tracks of the selected one on the

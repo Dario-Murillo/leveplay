@@ -1,7 +1,7 @@
 using System.ComponentModel;
 using System.Drawing.Drawing2D;
 
-namespace Leveplay.Tray.Player;
+namespace Leveplay.App.Player;
 
 /// <summary>
 /// Thin owner-drawn slider used for both the progress bar and the volume. The stock

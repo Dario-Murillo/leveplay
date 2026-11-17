@@ -1,4 +1,4 @@
-namespace Leveplay.Tray;
+namespace Leveplay.App;
 
 internal static class Program
 {
@@ -6,7 +6,7 @@ internal static class Program
     private static void Main()
     {
         // A second instance would fight over the OAuth callback port.
-        using var mutex = new Mutex(initiallyOwned: true, @"Local\Leveplay.Tray", out var isFirstInstance);
+        using var mutex = new Mutex(initiallyOwned: true, @"Local\Leveplay", out var isFirstInstance);
         if (!isFirstInstance)
         {
             return;
@@ -14,6 +14,6 @@ internal static class Program
 
         ApplicationConfiguration.Initialize();
         SynchronizationContext.SetSynchronizationContext(new WindowsFormsSynchronizationContext());
-        Application.Run(new TrayApp());
+        Application.Run(new Shell());
     }
 }

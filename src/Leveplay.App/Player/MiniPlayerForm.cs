@@ -1,4 +1,4 @@
-namespace Leveplay.Tray.Player;
+namespace Leveplay.App.Player;
 
 /// <summary>
 /// Small fixed-size window that shows only the now-playing strip, next to the tray.

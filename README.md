@@ -40,8 +40,8 @@ A Spotify Premium account is required.
 1. Install the [.NET 10 SDK](https://dotnet.microsoft.com/download).
 2. Register an app in the [Spotify Developer Dashboard](https://developer.spotify.com/dashboard)
    and add `http://127.0.0.1:5543/callback` as a Redirect URI.
-3. Copy `src/Leveplay.Tray/appsettings.local.example.json` to
-   `src/Leveplay.Tray/appsettings.local.json` and set your `ClientId`.
+3. Copy `src/Leveplay.App/appsettings.local.example.json` to
+   `src/Leveplay.App/appsettings.local.json` and set your `ClientId`.
    This file is git-ignored; no client secret is needed (PKCE).
 4. Install the audio engine: see [docs/soloist-setup.md](docs/soloist-setup.md).
    Leveplay runs without it, but then it can only control other devices.
@@ -51,7 +51,7 @@ A Spotify Premium account is required.
 ```bash
 dotnet build
 dotnet test
-dotnet run --project src/Leveplay.Tray
+dotnet run --project src/Leveplay.App
 ```
 
 On the first run the browser opens for Spotify sign-in, and Leveplay asks for the Soloist
@@ -112,7 +112,7 @@ The controller is currently the heavier of the two because a Debug build loads t
 
 ```
 src/Leveplay.Core/         Auth, config, devices, playback and engine management. No UI.
-src/Leveplay.Tray/         WinForms tray application (NotifyIcon, no main window).
+src/Leveplay.App/          The application: tray icon, mini player and main window (WinForms).
 tests/Leveplay.Core.Tests/ xUnit tests for Leveplay.Core.
 docs/soloist-setup.md      How to install and pair the audio engine.
 ```
