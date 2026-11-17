@@ -82,6 +82,49 @@ public sealed class PlaybackControllerTests
     }
 
     [Fact]
+    public async Task A_chosen_playlist_plays_on_the_active_device()
+    {
+        var player = new FakePlayer(Pc) { Playback = State(playing: true) };
+
+        var started = await new PlaybackController(player).PlayContextAsync(Playlist, "Leveplay");
+
+        Assert.True(started);
+        Assert.Equal([$"play {Playlist} on active device"], player.Commands);
+    }
+
+    [Fact]
+    public async Task A_chosen_playlist_starts_on_the_configured_device_when_nothing_is_active()
+    {
+        var player = new FakePlayer(Pc);
+
+        var started = await new PlaybackController(player).PlayContextAsync(Playlist, "Leveplay");
+
+        Assert.True(started);
+        Assert.Equal([$"play {Playlist} on pc-id"], player.Commands);
+    }
+
+    [Fact]
+    public async Task A_chosen_track_starts_the_playlist_from_that_track()
+    {
+        var player = new FakePlayer(Pc) { Playback = State(playing: true) };
+
+        await new PlaybackController(player).PlayContextAsync(Playlist, "Leveplay", "spotify:track:t7");
+
+        Assert.Equal([$"play {Playlist} on active device from spotify:track:t7"], player.Commands);
+    }
+
+    [Fact]
+    public async Task A_chosen_playlist_is_not_started_without_any_device()
+    {
+        var player = new FakePlayer();
+
+        var started = await new PlaybackController(player).PlayContextAsync(Playlist, "Leveplay");
+
+        Assert.False(started);
+        Assert.Empty(player.Commands);
+    }
+
+    [Fact]
     public async Task Skip_commands_are_forwarded()
     {
         var player = new FakePlayer(Pc);

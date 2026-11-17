@@ -49,13 +49,40 @@ public sealed class PlaybackController(IPlayerGateway player, Action<string>? lo
         if (!string.IsNullOrWhiteSpace(defaultContextUri))
         {
             log?.Invoke($"play: starting {defaultContextUri} on \"{device.Name}\"");
-            await player.PlayContextAsync(defaultContextUri, device.Id, ct).ConfigureAwait(false);
+            await player.PlayContextAsync(defaultContextUri, device.Id, ct: ct).ConfigureAwait(false);
             return PlayPauseOutcome.StartedDefault;
         }
 
         log?.Invoke($"play: nothing loaded, asking \"{device.Name}\" to resume");
         await player.TransferPlaybackAsync(device.Id, play: true, ct).ConfigureAwait(false);
         return PlayPauseOutcome.Resumed;
+    }
+
+    /// <summary>
+    /// Starts a playlist or album on the active device. When nothing is active it falls
+    /// back to the configured device, and returns false if that one is not online either.
+    /// </summary>
+    /// <param name="startAtUri">Track inside the context to start from, or null for the first.</param>
+    public async Task<bool> PlayContextAsync(
+        string contextUri, string deviceName, string? startAtUri = null, CancellationToken ct = default)
+    {
+        var state = await player.GetPlaybackAsync(ct).ConfigureAwait(false);
+        if (state is not null)
+        {
+            await player.PlayContextAsync(contextUri, deviceId: null, startAtUri, ct).ConfigureAwait(false);
+            return true;
+        }
+
+        var devices = await player.GetDevicesAsync(ct).ConfigureAwait(false);
+        var device = DeviceConnector.FindByName(devices, deviceName);
+        if (device is null || device.IsRestricted || string.IsNullOrEmpty(device.Id))
+        {
+            log?.Invoke($"play {contextUri}: no active device and \"{deviceName}\" is not available");
+            return false;
+        }
+
+        await player.PlayContextAsync(contextUri, device.Id, startAtUri, ct).ConfigureAwait(false);
+        return true;
     }
 
     public Task NextAsync(CancellationToken ct = default) => player.NextAsync(ct);

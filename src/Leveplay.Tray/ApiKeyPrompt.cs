@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using Leveplay.Tray.Player;
 
 namespace Leveplay.Tray;
 
@@ -20,6 +21,7 @@ internal sealed class ApiKeyPrompt : Form
         ShowIcon = false;
         TopMost = true;
         AutoScaleMode = AutoScaleMode.Dpi;
+        AutoScaleDimensions = Dpi.DesignSize;
         AutoSize = true;
         AutoSizeMode = AutoSizeMode.GrowAndShrink;
         Padding = new Padding(24, 20, 24, 20);
