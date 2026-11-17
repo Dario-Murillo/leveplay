@@ -1,6 +1,6 @@
 using Leveplay.Core.Devices;
 
-namespace Leveplay.Tray.Player;
+namespace Leveplay.App.Player;
 
 /// <summary>
 /// The now-playing strip: cover, track, transport buttons, volume and progress. It is

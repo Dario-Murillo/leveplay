@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
@@ -7,12 +7,12 @@
     <UseWindowsForms>true</UseWindowsForms>
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>Leveplay</AssemblyName>
-    <RootNamespace>Leveplay.Tray</RootNamespace>
+    <RootNamespace>Leveplay.App</RootNamespace>
     <ApplicationIcon>Assets\leveplay.ico</ApplicationIcon>
   </PropertyGroup>
 
   <ItemGroup>
-    <EmbeddedResource Include="Assets\leveplay.ico" LogicalName="Leveplay.Tray.leveplay.ico" />
+    <EmbeddedResource Include="Assets\leveplay.ico" LogicalName="Leveplay.App.leveplay.ico" />
   </ItemGroup>
 
   <ItemGroup>

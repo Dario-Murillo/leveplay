@@ -1,7 +1,7 @@
 using System.Diagnostics;
-using Leveplay.Tray.Player;
+using Leveplay.App.Player;
 
-namespace Leveplay.Tray;
+namespace Leveplay.App.Dialogs;
 
 /// <summary>Dialog that asks for the Soloist API key without echoing it.</summary>
 internal sealed class ApiKeyPrompt : Form

@@ -1,4 +1,4 @@
-namespace Leveplay.Tray;
+namespace Leveplay.App;
 
 /// <summary>
 /// Minimal diagnostic log at <c>%APPDATA%\Leveplay\leveplay.log</c>. A tray app has no

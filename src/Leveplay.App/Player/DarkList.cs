@@ -1,4 +1,4 @@
-namespace Leveplay.Tray.Player;
+namespace Leveplay.App.Player;
 
 /// <summary>What a <see cref="DarkList"/> row shows.</summary>
 /// <param name="Trailing">Short right-aligned text, such as a duration.</param>

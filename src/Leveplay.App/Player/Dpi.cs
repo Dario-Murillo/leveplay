@@ -1,4 +1,4 @@
-namespace Leveplay.Tray.Player;
+namespace Leveplay.App.Player;
 
 /// <summary>
 /// Layout coordinates in this project are written for a 150 % display (144 dpi), which
