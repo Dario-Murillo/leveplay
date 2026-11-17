@@ -501,7 +501,7 @@ internal sealed class AppController : IDisposable
 
             return LoadResult<IReadOnlyList<T>>.Ok(items);
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException) when (_shutdown.IsCancellationRequested)
         {
             return LoadResult<IReadOnlyList<T>>.Cancelled;
         }
@@ -515,8 +515,9 @@ internal sealed class AppController : IDisposable
             AppLog.Write($"loading {what} failed: {ex.Message}");
             return LoadResult<IReadOnlyList<T>>.Fail(describe(ex));
         }
-        catch (HttpRequestException ex)
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
         {
+            // A request timeout surfaces as TaskCanceledException.
             AppLog.Write($"loading {what} failed: {ex.Message}");
             return LoadResult<IReadOnlyList<T>>.Fail("Could not reach Spotify.");
         }
