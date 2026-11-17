@@ -87,6 +87,16 @@ internal sealed class NamedDto
 {
     [JsonProperty("name")]
     public string? Name { get; set; }
+
+    [JsonProperty("uri")]
+    public string? Uri { get; set; }
+}
+
+/// <summary>Response of <c>GET /search?type=track</c>.</summary>
+internal sealed class SearchDto
+{
+    [JsonProperty("tracks")]
+    public PageDto<TrackDto>? Tracks { get; set; }
 }
 
 internal static class LibraryMapper
@@ -98,9 +108,12 @@ internal static class LibraryMapper
             : null;
 
     /// <summary>Returns null for removed tracks, which arrive as an entry without content.</summary>
-    public static TrackSummary? ToSummary(PlaylistItemDto? dto)
+    public static TrackSummary? ToSummary(PlaylistItemDto? dto) =>
+        ToSummary(dto?.Item ?? dto?.Track, dto?.IsLocal ?? false);
+
+    /// <summary>Returns null for an entry without content.</summary>
+    public static TrackSummary? ToSummary(TrackDto? track, bool isLocal = false)
     {
-        var track = dto?.Item ?? dto?.Track;
         if (track is not { Uri: not null, Name: not null })
         {
             return null;
@@ -108,6 +121,7 @@ internal static class LibraryMapper
 
         var artists = track.Artists?.Select(a => a?.Name).Where(name => !string.IsNullOrEmpty(name)).ToList();
         var artist = artists is { Count: > 0 } ? string.Join(", ", artists) : track.Show?.Name;
-        return new TrackSummary(track.Uri, track.Name, artist, track.Album?.Name, track.DurationMs, dto!.IsLocal);
+        return new TrackSummary(
+            track.Uri, track.Name, artist, track.Album?.Name, track.DurationMs, isLocal, track.Album?.Uri);
     }
 }

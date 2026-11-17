@@ -359,6 +359,12 @@ internal sealed class AppController : IDisposable
         $"tracks of \"{playlist.Name}\"",
         ex => $"Could not load the tracks.\n{ex.Message}");
 
+    public Task<LoadResult<IReadOnlyList<TrackSummary>>> SearchAsync(string query) => LoadAsync<TrackSummary>(
+        _library is null ? null : ct => _library.SearchTracksAsync(query, ct),
+        "Sign in to search.",
+        "search results",
+        ex => $"Could not search.\n{ex.Message}");
+
     /// <summary>Asks for a new API key and restarts the engine with it.</summary>
     public async Task ChangeApiKeyAsync()
     {
