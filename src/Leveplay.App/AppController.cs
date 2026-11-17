@@ -188,7 +188,8 @@ internal sealed class AppController : IDisposable
     }
 
     /// <summary>Connects to the given device, or to the configured one when none is given.</summary>
-    public Task<bool> ConnectAsync(string? deviceName = null) => RunAsync("looking for device…", async ct =>
+    /// <param name="deviceId">Picks one exact device; names are not unique.</param>
+    public Task<bool> ConnectAsync(string? deviceName = null, string? deviceId = null) => RunAsync("looking for device…", async ct =>
     {
         if (_connector is null || Settings is null)
         {
@@ -196,7 +197,7 @@ internal sealed class AppController : IDisposable
         }
 
         var name = deviceName ?? Settings.DeviceName;
-        var result = await _connector.ConnectAsync(name, ct);
+        var result = await _connector.ConnectAsync(name, deviceId, ct);
 
         // A freshly started engine needs a few seconds to register with Spotify.
         var waitingForEngine = _engineJustStarted && deviceName is null;
@@ -208,7 +209,7 @@ internal sealed class AppController : IDisposable
         {
             SetStatus("starting audio engine…");
             await Task.Delay(1000, ct);
-            result = await _connector.ConnectAsync(name, ct);
+            result = await _connector.ConnectAsync(name, deviceId, ct);
         }
 
         AppLog.Write($"connect \"{name}\": {result.Status}");

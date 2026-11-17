@@ -29,13 +29,17 @@ public sealed record ConnectResult(
 /// <param name="log">Optional sink for diagnostic messages.</param>
 public sealed class DeviceConnector(IPlayerGateway player, Action<string>? log = null)
 {
-    public async Task<ConnectResult> ConnectAsync(string deviceName, CancellationToken ct = default)
+    /// <param name="deviceId">When given, picks that exact device instead of matching by name.</param>
+    public async Task<ConnectResult> ConnectAsync(
+        string deviceName, string? deviceId = null, CancellationToken ct = default)
     {
         var devices = await player.GetDevicesAsync(ct).ConfigureAwait(false);
         var names = devices.Select(d => d.Name).ToList();
         log?.Invoke($"connect \"{deviceName}\": online = [{string.Join(", ", devices.Select(Describe))}]");
 
-        var device = FindByName(devices, deviceName);
+        var device = deviceId is null
+            ? FindByName(devices, deviceName)
+            : devices.FirstOrDefault(d => d.Id == deviceId);
         if (device is null)
         {
             return new ConnectResult(ConnectStatus.NotFound, null, names);

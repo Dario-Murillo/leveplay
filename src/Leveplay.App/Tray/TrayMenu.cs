@@ -178,8 +178,8 @@ internal sealed class TrayMenu : IDisposable
         items.Clear();
         foreach (var device in devices)
         {
-            var name = device.Name;
-            items.Add(new ToolStripMenuItem($"{name} ({device.Type})", null, async (_, _) => await _app.ConnectAsync(name))
+            var (id, name) = (device.Id, device.Name);
+            items.Add(new ToolStripMenuItem($"{name} ({device.Type})", null, async (_, _) => await _app.ConnectAsync(name, id))
             {
                 Checked = device.IsActive,
                 Enabled = device.IsControllable,
