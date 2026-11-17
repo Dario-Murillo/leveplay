@@ -9,7 +9,7 @@ namespace Leveplay.Core.Library;
 /// Reads the library straight from the Web API through the authenticated connector,
 /// because the typed client predates the 2026 playlist changes (see <c>LibraryDtos</c>).
 /// </summary>
-public sealed class SpotifyLibraryGateway(IAPIConnector api, Action<string>? log = null) : ILibraryGateway
+public sealed class SpotifyLibraryGateway(IAPIConnector api, Action<string>? log = null)
 {
     /// <summary>Largest page Spotify allows, to keep the number of requests down.</summary>
     private const int PageSize = 50;
@@ -17,12 +17,14 @@ public sealed class SpotifyLibraryGateway(IAPIConnector api, Action<string>? log
     /// <summary>Upper bound on what one list loads, so a huge playlist cannot stall the UI.</summary>
     public const int MaxItems = 2000;
 
+    /// <summary>All playlists the user owns or follows, in the order Spotify returns them.</summary>
     public async Task<IReadOnlyList<PlaylistSummary>> GetPlaylistsAsync(CancellationToken ct = default)
     {
         var playlists = await GetAllAsync<PlaylistDto>("me/playlists", null, ct).ConfigureAwait(false);
         return playlists.Select(LibraryMapper.ToSummary).OfType<PlaylistSummary>().ToList();
     }
 
+    /// <exception cref="LibraryAccessException">The playlist's contents are not readable.</exception>
     public async Task<IReadOnlyList<TrackSummary>> GetPlaylistTracksAsync(
         string playlistId, CancellationToken ct = default)
     {

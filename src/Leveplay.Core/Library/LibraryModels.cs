@@ -36,13 +36,3 @@ public sealed record TrackSummary(
 /// playlists the user owns or collaborates on; others can still be played as a whole.
 /// </summary>
 public sealed class LibraryAccessException(string message) : Exception(message);
-
-/// <summary>Read access to the user's Spotify library.</summary>
-public interface ILibraryGateway
-{
-    /// <summary>All playlists the user owns or follows, in the order Spotify returns them.</summary>
-    Task<IReadOnlyList<PlaylistSummary>> GetPlaylistsAsync(CancellationToken ct = default);
-
-    /// <exception cref="LibraryAccessException">The playlist's contents are not readable.</exception>
-    Task<IReadOnlyList<TrackSummary>> GetPlaylistTracksAsync(string playlistId, CancellationToken ct = default);
-}

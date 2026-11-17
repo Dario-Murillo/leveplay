@@ -23,6 +23,9 @@ public sealed class SpotifyAuthService(
     Action<Uri> openBrowser,
     Func<PKCETokenRefreshRequest, CancellationToken, Task<PKCETokenResponse>>? refresh = null)
 {
+    /// <summary>How long to wait for the user to finish the browser flow.</summary>
+    private static readonly TimeSpan InteractiveTimeout = TimeSpan.FromMinutes(3);
+
     private static readonly string[] RequiredScopes =
     [
         Scopes.UserReadPlaybackState,
@@ -31,9 +34,6 @@ public sealed class SpotifyAuthService(
         Scopes.PlaylistReadPrivate,
         Scopes.PlaylistReadCollaborative,
     ];
-
-    /// <summary>How long to wait for the user to finish the browser flow.</summary>
-    public TimeSpan InteractiveTimeout { get; init; } = TimeSpan.FromMinutes(3);
 
     public async Task<SpotifySession> SignInAsync(CancellationToken ct = default)
     {

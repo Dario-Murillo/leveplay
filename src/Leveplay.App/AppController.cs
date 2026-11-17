@@ -62,7 +62,7 @@ internal sealed class AppController : IDisposable
     private IPlayerGateway? _player;
     private DeviceConnector? _connector;
     private PlaybackController? _playback;
-    private ILibraryGateway? _library;
+    private SpotifyLibraryGateway? _library;
     private SoloistEngine? _engine;
     private bool _engineJustStarted;
     private bool _engineAdopted;
