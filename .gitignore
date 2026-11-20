@@ -483,3 +483,6 @@ $RECYCLE.BIN/
 
 # Leveplay: machine-specific settings (Client ID)
 appsettings.local.json
+
+# Working notes from Claude Code plugins (designs, plans); kept local only.
+docs/superpowers/
