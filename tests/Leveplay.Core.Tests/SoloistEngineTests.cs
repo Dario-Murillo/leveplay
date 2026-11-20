@@ -39,6 +39,17 @@ public sealed class SoloistEngineTests
         Assert.Equal(expected, SoloistEngine.StripTimestamp(line));
     }
 
+    [Theory]
+    [InlineData("2026-11-20 16:52:56.065: client expires in 81 days", 81)]
+    [InlineData("client expires in 1 day", 1)]
+    [InlineData("client expires in 0 days", 0)]
+    [InlineData("2026-11-12 14:26:01.488: became active device", null)]
+    [InlineData("client expires in many days", null)]
+    public void Reads_the_days_left_from_the_expiry_line(string line, int? expected)
+    {
+        Assert.Equal(expected, SoloistEngine.ParseDaysLeft(line));
+    }
+
     [Fact]
     public void Starting_a_missing_executable_fails_with_a_clear_error()
     {

@@ -104,6 +104,12 @@ internal sealed class AppController : IDisposable
 
     public bool IsSignedIn => _player is not null;
 
+    /// <summary>Warn this many days before the Soloist build expires.</summary>
+    public const int EngineExpiryWarningDays = 14;
+
+    /// <summary>Last day the running Soloist build works, once it has reported it.</summary>
+    public DateOnly? EngineExpiresOn { get; private set; }
+
     public EngineState Engine
     {
         get
@@ -442,6 +448,7 @@ internal sealed class AppController : IDisposable
         _engine?.Dispose();
         _engine = new SoloistEngine(enginePath, Settings.DeviceName, AppLog.Write);
         _engine.ExitedUnexpectedly += code => _ui.Post(_ => OnEngineExited(code), null);
+        _engine.ExpiryReported += days => _ui.Post(_ => OnEngineExpiryReported(days), null);
 
         try
         {
@@ -453,6 +460,31 @@ internal sealed class AppController : IDisposable
         {
             ReportError("Could not start Soloist", ex.Message);
         }
+    }
+
+    private void OnEngineExpiryReported(int daysLeft)
+    {
+        EngineExpiresOn = DateOnly.FromDateTime(DateTime.Today).AddDays(daysLeft);
+        AvailabilityChanged?.Invoke();
+        if (daysLeft <= EngineExpiryWarningDays)
+        {
+            ReportError(
+                "Soloist expires soon",
+                $"This Soloist build stops working {DescribeExpiry(EngineExpiresOn.Value)}. "
+                + "Open Audio engine → Get Soloist, replace the file, then Start.");
+        }
+    }
+
+    /// <summary>"on 10 Feb 2027 (in 81 days)", "today" or "tomorrow".</summary>
+    public static string DescribeExpiry(DateOnly expiresOn)
+    {
+        var days = expiresOn.DayNumber - DateOnly.FromDateTime(DateTime.Today).DayNumber;
+        return days switch
+        {
+            <= 0 => "today",
+            1 => "tomorrow",
+            _ => $"on {expiresOn.ToString("d MMM yyyy", System.Globalization.CultureInfo.InvariantCulture)} (in {days} days)",
+        };
     }
 
     private void OnEngineExited(int exitCode)

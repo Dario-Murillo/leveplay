@@ -31,6 +31,9 @@ public sealed partial class SoloistEngine(string executablePath, string deviceNa
     [GeneratedRegex(@"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(\.\d+)?: ")]
     private static partial Regex TimestampPrefix();
 
+    [GeneratedRegex(@"client expires in (\d+) days?\b")]
+    private static partial Regex ExpiryLine();
+
     /// <summary>Exit code Soloist uses when its build is older than 90 days.</summary>
     public const int ExpiredBuildExitCode = 10;
 
@@ -39,6 +42,9 @@ public sealed partial class SoloistEngine(string executablePath, string deviceNa
 
     /// <summary>Raised with the exit code when the engine stops without being asked to.</summary>
     public event Action<int>? ExitedUnexpectedly;
+
+    /// <summary>Raised with the days left before this build expires, which Soloist prints at start.</summary>
+    public event Action<int>? ExpiryReported;
 
     /// <summary>True while an engine launched by this instance is alive.</summary>
     public bool IsRunning => _process is { HasExited: false };
@@ -183,6 +189,12 @@ public sealed partial class SoloistEngine(string executablePath, string deviceNa
     public static bool IsWorthLogging(string line) =>
         !string.IsNullOrWhiteSpace(line) && !line.Contains(": playing spotify:", StringComparison.Ordinal);
 
+    /// <summary>Days left from a "client expires in N days" line, or null for any other line.</summary>
+    public static int? ParseDaysLeft(string line) =>
+        ExpiryLine().Match(line) is { Success: true } match && int.TryParse(match.Groups[1].ValueSpan, out var days)
+            ? days
+            : null;
+
     /// <summary>Drops Soloist's own timestamp; the log already adds one.</summary>
     public static string StripTimestamp(string line) => TimestampPrefix().Replace(line, "");
 
@@ -191,6 +203,10 @@ public sealed partial class SoloistEngine(string executablePath, string deviceNa
         if (line is not null && IsWorthLogging(line))
         {
             log?.Invoke($"engine: {StripTimestamp(line)}");
+            if (ParseDaysLeft(line) is { } days)
+            {
+                ExpiryReported?.Invoke(days);
+            }
         }
     }
 
