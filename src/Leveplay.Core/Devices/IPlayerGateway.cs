@@ -15,6 +15,7 @@ public sealed record ConnectDevice(string? Id, string Name, string Type, bool Is
 /// <param name="Artist">Artists of a track, or the show of an episode.</param>
 /// <param name="VolumePercent">0-100, or null when the device does not report a volume.</param>
 /// <param name="ArtUrl">Cover image sized for a small player, when there is one.</param>
+/// <param name="Shuffle">True when the device plays the context in random order.</param>
 public sealed record PlaybackState(
     bool IsPlaying,
     string? Title,
@@ -23,7 +24,8 @@ public sealed record PlaybackState(
     int ProgressMs = 0,
     int DurationMs = 0,
     int? VolumePercent = null,
-    string? ArtUrl = null);
+    string? ArtUrl = null,
+    bool Shuffle = false);
 
 /// <summary>
 /// The slice of the Spotify player API that Leveplay uses. Kept small so the logic on
@@ -59,4 +61,7 @@ public interface IPlayerGateway
     Task SetVolumeAsync(int percent, CancellationToken ct = default);
 
     Task SeekAsync(int positionMs, CancellationToken ct = default);
+
+    /// <summary>Turns random order on or off for what the active device is playing.</summary>
+    Task SetShuffleAsync(bool on, CancellationToken ct = default);
 }

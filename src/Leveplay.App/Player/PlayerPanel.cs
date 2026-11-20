@@ -24,6 +24,7 @@ internal sealed class PlayerPanel : Panel
     private readonly Button _previous;
     private readonly Button _playPause;
     private readonly Button _next;
+    private readonly Button _shuffle;
     private readonly Button _extra;
     private readonly Label _volumeIcon;
     private readonly SliderBar _volume;
@@ -44,6 +45,9 @@ internal sealed class PlayerPanel : Panel
     public event Action? PreviousRequested;
     public event Action<int>? VolumeRequested;
     public event Action<int>? SeekRequested;
+
+    /// <summary>Raised with the shuffle state the user switched to.</summary>
+    public event Action<bool>? ShuffleRequested;
 
     /// <summary>Raised when the strip believes its state is stale (e.g. the track ended).</summary>
     public event Action? RefreshRequested;
@@ -82,6 +86,20 @@ internal sealed class PlayerPanel : Panel
         _previous.Click += (_, _) => PreviousRequested?.Invoke();
         _playPause.Click += (_, _) => PlayPauseRequested?.Invoke();
         _next.Click += (_, _) => NextRequested?.Invoke();
+
+        _shuffle = Theme.IconButton(Theme.ShuffleGlyph, "Shuffle", 10F);
+        _shuffle.Click += (_, _) =>
+        {
+            if (_state is null)
+            {
+                return;
+            }
+
+            // Show the new state right away; the next poll corrects it if Spotify refused.
+            _state = _state with { Shuffle = !_state.Shuffle };
+            ShowShuffle();
+            ShuffleRequested?.Invoke(_state.Shuffle);
+        };
 
         _extra = Theme.IconButton(extraGlyph ?? "", extraName ?? "", 10F);
         _extra.ForeColor = Theme.Dim;
@@ -125,7 +143,7 @@ internal sealed class PlayerPanel : Panel
         };
 
         Controls.AddRange([
-            _art, _title, _artist, _device, _previous, _playPause, _next, _extra,
+            _art, _title, _artist, _device, _previous, _playPause, _next, _shuffle, _extra,
             _volumeIcon, _volume, _elapsed, _progress, _duration,
         ]);
 
@@ -147,6 +165,7 @@ internal sealed class PlayerPanel : Panel
 
         _playPause.Text = state is { IsPlaying: true } ? Theme.PauseGlyph : Theme.PlayGlyph;
         _previous.Enabled = _next.Enabled = hasTrack;
+        ShowShuffle();
         _progress.Enabled = state is { DurationMs: > 0 };
         _duration.Text = hasTrack ? PlaybackController.FormatTime(state!.DurationMs) : "";
 
@@ -186,6 +205,13 @@ internal sealed class PlayerPanel : Panel
         return true;
     }
 
+    private void ShowShuffle()
+    {
+        _shuffle.Enabled = _state is not null;
+        _shuffle.ForeColor = _state is { Shuffle: true } ? Theme.Accent : Theme.Dim;
+        _shuffle.AccessibleName = _state is { Shuffle: true } ? "Shuffle: on" : "Shuffle: off";
+    }
+
     /// <summary>Shows an error in place of the device line until the next state arrives.</summary>
     public void ShowMessage(string message)
     {
@@ -213,10 +239,14 @@ internal sealed class PlayerPanel : Panel
         _previous.Bounds = new Rectangle(P(132), P(88), P(36), P(32));
         _playPause.Bounds = new Rectangle(P(172), P(88), P(36), P(32));
         _next.Bounds = new Rectangle(P(212), P(88), P(36), P(32));
+        _shuffle.Bounds = new Rectangle(P(256), P(88), P(36), P(32));
 
         var volumeWidth = P(120);
         _volume.Bounds = new Rectangle(right - volumeWidth, P(96), volumeWidth, P(16));
         _volumeIcon.Bounds = new Rectangle(_volume.Left - P(28), P(88), P(26), P(32));
+
+        // The mini player is too narrow for it; shuffle stays available in the main window.
+        _shuffle.Visible = _volumeIcon.Left >= _shuffle.Right + P(8);
 
         _elapsed.Bounds = new Rectangle(P(12), P(144), P(44), P(20));
         _duration.Bounds = new Rectangle(width - P(56), P(144), P(44), P(20));

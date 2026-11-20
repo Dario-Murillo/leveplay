@@ -159,6 +159,18 @@ public sealed class PlaybackControllerTests
         Assert.Equal([expected], player.Commands);
     }
 
+    [Theory]
+    [InlineData(true, "shuffle on")]
+    [InlineData(false, "shuffle off")]
+    public async Task Shuffle_is_sent_to_the_active_device(bool on, string expected)
+    {
+        var player = new FakePlayer(Pc);
+
+        await new PlaybackController(player).SetShuffleAsync(on);
+
+        Assert.Equal([expected], player.Commands);
+    }
+
     [Fact]
     public async Task Seek_never_goes_before_the_start()
     {

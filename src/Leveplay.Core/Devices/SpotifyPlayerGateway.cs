@@ -42,7 +42,8 @@ public sealed class SpotifyPlayerGateway(ISpotifyClient client) : IPlayerGateway
             playback.ProgressMs,
             durationMs,
             playback.Device.VolumePercent,
-            PlaybackController.PickArtUrl(images?.Select(i => (i.Url, i.Width))));
+            PlaybackController.PickArtUrl(images?.Select(i => (i.Url, i.Width))),
+            playback.ShuffleState);
     }
 
     public Task TransferPlaybackAsync(string deviceId, bool play, CancellationToken ct = default) =>
@@ -73,4 +74,7 @@ public sealed class SpotifyPlayerGateway(ISpotifyClient client) : IPlayerGateway
 
     public Task SeekAsync(int positionMs, CancellationToken ct = default) =>
         client.Player.SeekTo(new PlayerSeekToRequest(positionMs), ct);
+
+    public Task SetShuffleAsync(bool on, CancellationToken ct = default) =>
+        client.Player.SetShuffle(new PlayerShuffleRequest(on), ct);
 }

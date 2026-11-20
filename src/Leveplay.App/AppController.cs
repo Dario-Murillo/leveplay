@@ -308,6 +308,17 @@ internal sealed class AppController : IDisposable
         await RefreshAfterCommandAsync(ct);
     });
 
+    public Task<bool> SetShuffleAsync(bool on) => RunAsync(null, async ct =>
+    {
+        if (_playback is null)
+        {
+            return;
+        }
+
+        await _playback.SetShuffleAsync(on, ct);
+        await RefreshAfterCommandAsync(ct);
+    });
+
     /// <summary>Fetches the playback state now. Failures are logged, not shown.</summary>
     public async Task RefreshAsync()
     {

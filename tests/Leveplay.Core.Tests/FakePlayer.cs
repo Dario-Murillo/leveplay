@@ -51,6 +51,8 @@ internal sealed class FakePlayer(params ConnectDevice[] devices) : IPlayerGatewa
 
     public Task SeekAsync(int positionMs, CancellationToken ct = default) => Record($"seek {positionMs}");
 
+    public Task SetShuffleAsync(bool on, CancellationToken ct = default) => Record(on ? "shuffle on" : "shuffle off");
+
     private Task Record(string command)
     {
         Commands.Add(command);
