@@ -27,6 +27,7 @@ internal sealed class TrayMenu : IDisposable
     private readonly ToolStripMenuItem _getEngineItem;
     private readonly ToolStripMenuItem _apiKeyItem;
     private readonly ToolStripMenuItem _startEngineItem;
+    private readonly ToolStripMenuItem _expiryItem;
     private readonly ToolStripMenuItem _signInItem;
 
     public event Action? OpenMainWindowRequested;
@@ -58,7 +59,8 @@ internal sealed class TrayMenu : IDisposable
         _apiKeyItem = new ToolStripMenuItem("2. Set API key…", null, async (_, _) => await _app.ChangeApiKeyAsync());
         _startEngineItem = new ToolStripMenuItem("3. Start", null, async (_, _) => await _app.RestartEngineAsync());
         _engineItem = new ToolStripMenuItem("Audio engine");
-        _engineItem.DropDownItems.AddRange([_getEngineItem, _apiKeyItem, _startEngineItem]);
+        _expiryItem = DisabledItem("");
+        _engineItem.DropDownItems.AddRange([_getEngineItem, _apiKeyItem, _startEngineItem, _expiryItem]);
 
         var menu = new ContextMenuStrip { ShowItemToolTips = true };
         menu.Items.Add(_statusItem);
@@ -154,6 +156,13 @@ internal sealed class TrayMenu : IDisposable
         _startEngineItem.Checked = engine == EngineState.Running;
         _startEngineItem.Text = engine == EngineState.Running ? "3. Running (restart)" : "3. Start";
         _startEngineItem.Enabled = engine is EngineState.Stopped or EngineState.Running && !busy;
+
+        // Soloist builds stop working 90 days after they were built.
+        _expiryItem.Visible = _app.EngineExpiresOn is not null && engine == EngineState.Running;
+        if (_app.EngineExpiresOn is { } expiresOn)
+        {
+            _expiryItem.Text = $"This build expires {AppController.DescribeExpiry(expiresOn)}";
+        }
     }
 
     /// <summary>

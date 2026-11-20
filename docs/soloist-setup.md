@@ -59,8 +59,10 @@ and then looks for a Connect device with that same name, so the two always match
 
 ## Updating: builds expire after 90 days
 
-Each Soloist build stops working 90 days after it was built. When that happens Soloist
-exits with code 10 and Leveplay reports that the build has expired.
+Each Soloist build stops working 90 days after it was built. The **Audio engine** menu
+shows the date the running build expires, and from 14 days before that Leveplay warns
+you each time it starts the engine. Once the build has expired, Soloist exits with code
+10 and Leveplay reports it.
 
 1. Choose **Audio engine → 1. Soloist installed (update…)**.
 2. Download the current build and replace `soloist.exe` in the engine folder.
