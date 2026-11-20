@@ -119,6 +119,7 @@ internal sealed class Shell : ApplicationContext
         player.PreviousRequested += async () => await _app.SkipAsync(next: false);
         player.VolumeRequested += async percent => await _app.SetVolumeAsync(percent);
         player.SeekRequested += async position => await _app.SeekAsync(position);
+        player.ShuffleRequested += async on => await _app.SetShuffleAsync(on);
         player.RefreshRequested += async () => await _app.RefreshAsync();
         player.ShowState(_app.Playback);
     }

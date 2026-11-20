@@ -95,6 +95,8 @@ public sealed class PlaybackController(IPlayerGateway player, Action<string>? lo
     public Task SeekAsync(int positionMs, CancellationToken ct = default) =>
         player.SeekAsync(Math.Max(0, positionMs), ct);
 
+    public Task SetShuffleAsync(bool on, CancellationToken ct = default) => player.SetShuffleAsync(on, ct);
+
     /// <summary>Formats a position as <c>m:ss</c>, or <c>h:mm:ss</c> for long episodes.</summary>
     public static string FormatTime(int milliseconds)
     {

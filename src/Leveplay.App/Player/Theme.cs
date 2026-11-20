@@ -23,6 +23,7 @@ internal static class Theme
     public const string NextGlyph = "";
     public const string VolumeGlyph = "";
     public const string LibraryGlyph = "";
+    public const string ShuffleGlyph = "";
     public const string RefreshGlyph = "";
 
     public static Font BaseFont => SystemFonts.MessageBoxFont ?? SystemFonts.DefaultFont;
