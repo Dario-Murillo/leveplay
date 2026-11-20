@@ -119,6 +119,12 @@ tests/Leveplay.Core.Tests/ xUnit tests for Leveplay.Core.
 docs/soloist-setup.md      How to install and pair the audio engine.
 ```
 
+## License
+
+Leveplay is released under the [MIT License](LICENSE). The license covers Leveplay's own
+code only. Its NuGet dependencies keep their own licenses (SpotifyAPI.Web and
+Newtonsoft.Json are MIT), and Spotify Soloist is covered by Spotify's terms.
+
 ## Disclaimer
 
 Leveplay is not affiliated with Spotify. It uses the official Spotify Web API and runs
